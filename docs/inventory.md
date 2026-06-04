@@ -23,6 +23,10 @@ The 7050's i7-7700 is the weakest CPU, but that matters far less for an I/O-boun
 Ceph OSD node than for a compute node — so it is used mainly as an OSD/compute node
 and leaned on as little as possible for VM scheduling.
 
+**Hyperthreading** is left **enabled** (BIOS default) on the three compute nodes that
+have it (7060, 5090, 7050); the 7071's i7-9700 has none. The thread counts above
+reflect HT on. See [decisions.md](decisions.md) for the benchmarking caveat.
+
 ## RAM
 
 - **Starting stock:** 10× 8GB DDR4 sticks (every machine had 2× 8GB).

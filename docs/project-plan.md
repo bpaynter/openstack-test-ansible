@@ -52,19 +52,19 @@ Physical preparation and a clean base OS on all four nodes. RAM consolidation
 with static networking on every node. Details and execution log in
 [project-phase-0.md](project-phase-0.md).
 
-### Phase 1 — Ceph and the controller node, by hand
+### Phase 1 — Ceph and the controller node, by hand — **complete**
 
 Build the storage and control plane by hand to learn what the services *are*.
+Details and execution log in [project-phase-1.md](project-phase-1.md).
 
-- Bootstrap Ceph with **cephadm** (Ceph Squid 19.x), enroll all hosts, place the
-  5 OSDs, and create the `images`/`volumes`/`vms` pools for OpenStack.
+- Bootstrap Ceph with **cephadm** (Ceph Squid 19.2.x), enroll all hosts, place the
+  5 OSDs (2+1+2), and create the `images` RBD pool for Glance. (The `volumes`/`vms`
+  pools for Cinder/Nova are deferred — those services aren't part of Phase 1.)
 - On the controller (7071), manually install and wire up a minimal OpenStack control
   plane: **Keystone, Glance (Ceph RBD backend), Placement** — plus its supporting
-  cast (RabbitMQ, MariaDB, memcached) — following the OpenStack install guide.
+  cast (RabbitMQ, MariaDB, memcached) — following the OpenStack 2025.1 install guide.
 - Outcome: understand Keystone tokens, the Glance→Ceph RBD integration, and why
   Placement exists.
-- Planned as 8 sections (host prep → Ceph bootstrap → OSDs → pools/RBD → OpenStack
-  prereqs → Keystone → Glance → Placement).
 
 ### Phase 2 — Compute nodes with hand-rolled Ansible
 
@@ -93,18 +93,16 @@ Settled:
 - **Domain / DNS suffix** → **`lab.internal`** (FQDNs `controller`/`compute1–3.lab.internal`).
 - **Static IPs** (subnet `192.168.1.0/24`) → `controller` .130 (7071), `compute1` .131
   (7060), `compute2` .132 (5090), `compute3` .133 (7050).
+- **RDO repo for 2025.1 on EL9** → `centos-release-openstack-epoxy` (worked; Keystone,
+  Glance, and Placement installed and run).
+- **Ceph release for `cephadm`** → **Squid 19.2.x** (cephadm default). RDO Epoxy was
+  validated against Reef 18.2.0 — skew noted, no problems in Phase 1.
+- **Name resolution / gateway** → local `/etc/hosts` on all nodes, no DNS; normal LAN
+  gateway for outbound.
+- **Firewall** → **firewalld disabled**. **SELinux** → **enforcing**.
 
-Still open:
-
-- **RDO / package repository setup** for OpenStack 2025.1 on AlmaLinux 9 — verify
-  repo availability/completeness as the first real Phase 1 step.
-- **Ceph release to pair with `cephadm`** — the version cephadm pulls by default vs.
-  an explicitly pinned release (Squid 19.x intended).
-- **Gateway / DNS specifics** — whether name resolution is purely local `/etc/hosts`
-  or a real DNS server is still to confirm.
-- **Firewall on or off** and **SELinux posture** — firewall left undecided (assistant
-  leaned toward leaving firewalld on); SELinux planned as enforcing but flagged for a
-  deliberate decision in implementation.
+No planning open items remain. Phase 0 and Phase 1 are complete; the remaining work is
+Phase 2 (compute nodes via hand-rolled Ansible) and Phase 3 (Kolla-Ansible rebuild).
 
 ---
 
@@ -118,3 +116,4 @@ Still open:
 | 2026-05-22 | Renumbered the phases to a 0–3 scheme: Phase 0 (hardware prep + OS install), Phase 1 (Ceph + controller by hand), Phase 2 (compute nodes via hand-rolled Ansible), Phase 3 (Kolla rebuild). Previously the docs labelled these "Phase 1 / transition / Phase 2". |
 | 2026-05-22 | Resolved three former open items: OS → AlmaLinux 9 (was leaning AlmaLinux 10), OpenStack release → 2025.1 "Epoxy", Phase 1 Ceph method → cephadm. |
 | 2026-05-23 | Resolved the domain (`lab.internal`) and static IPs (`.130–.133`); replaced them as open items with the remaining ones (RDO repo for 2025.1 on EL9, Ceph release pairing for cephadm, CIDR/gateway/DNS specifics, firewall/SELinux posture). Updated the Phase 2 compute-node list (5080 → 7050) for the PSU-failure hardware swap. |
+| 2026-05-23 | Phase 1 completed. Resolved the last open items (RDO Epoxy repo, Ceph Squid 19.2.x, local `/etc/hosts`/gateway, firewall disabled, SELinux enforcing) — no planning open items remain. Marked Phase 1 done and corrected its Ceph-pool note (only `images` created; `volumes`/`vms` deferred). |

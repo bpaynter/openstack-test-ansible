@@ -17,6 +17,7 @@ the configuration and Ansible code used to build the cluster.
 | [docs/inventory.md](docs/inventory.md) | Hardware inventory (machines, CPUs, RAM, disks) and a hardware changelog. |
 | [docs/decisions.md](docs/decisions.md) | Decisions made during planning and execution, with the reasoning behind each. |
 | [docs/project-phase-0.md](docs/project-phase-0.md) | Phase 0 — hardware prep and OS installation: planned steps and execution log. |
+| [docs/project-phase-1.md](docs/project-phase-1.md) | Phase 1 — Ceph + the controller node by hand: planned steps, config notes, and execution log. |
 
 > This documentation is being reconstructed from a series of planning and
 > implementation chats, one chunk at a time. The table of contents above will grow

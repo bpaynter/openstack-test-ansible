@@ -27,6 +27,8 @@ See [inventory.md](inventory.md) for the hardware and address plan, and
   - OSD topology: 2 + 1 + 2 = 5 OSDs across 3 hosts.
 - **Record the serial number of every SSD** so the boot disk and OSD disks can be
   positively identified at install time and in Phase 1.
+- **BIOS:** leave **hyperthreading enabled** (default) on the compute nodes (7060,
+  5090, 7050); the 7071 has none. See [decisions.md](decisions.md).
 
 ### OS install (per node) — AlmaLinux 9, Minimal Install
 
@@ -62,28 +64,31 @@ See [inventory.md](inventory.md) for the hardware and address plan, and
 
 ## Open / unconfirmed for Phase 0
 
-- **Gateway / DNS** — addresses confirmed on `192.168.1.0/24` (.130–.133); the gateway
-  and whether name resolution is purely local `/etc/hosts` or a real DNS server are
-  still to confirm.
-- **Firewall on or off** — undecided; applies consistently across all four nodes once
-  chosen.
-- **SELinux posture** — planned enforcing, flagged for a deliberate decision.
+All Phase 0 open items have since been settled (at the start of Phase 1 — see
+[project-phase-1.md](project-phase-1.md)):
+
+- **Gateway / DNS** → addresses on `192.168.1.0/24` (.130–.133); name resolution is
+  purely local `/etc/hosts` (no DNS), with the normal LAN gateway for outbound.
+- **Firewall** → **firewalld disabled**.
+- **SELinux** → **enforcing**.
 
 ## Actual work completed
 
-No completion of the hardware prep or OS installs is explicitly reported in the
-conversations processed so far. What is confirmed (as decisions/plan, not as
-verified execution):
+Phase 0 was carried out — the Phase 1 work runs on the real, installed nodes, which is
+indirect but strong evidence the hardware prep and OS installs were completed:
 
-- The OS was committed to **AlmaLinux 9** (the user explicitly switched from
-  AlmaLinux 10).
-- The static-IP, no-DHCP networking approach was accepted, with confirmed addresses
-  on the `lab.internal` domain.
-- The post-PSU-failure hardware layout (5080 retired, 7050 in, NVMe → 7071) is
-  decided.
+- All four nodes run **AlmaLinux 9** with their static `lab.internal` addresses
+  (Ceph bootstrapped on the controller at 192.168.1.130; OSD hosts enrolled at
+  .131/.132/.133).
+- The post-PSU-failure hardware layout was realized (7050 in service as `compute3`;
+  the controller's NVMe boot; the 2+1+2 OSD disk placement).
+- One disk-prep wrinkle surfaced in Phase 1: compute3's two OSD SSDs were left over
+  from an old mdadm RAID array (`md127`) and had to be cleared before Ceph would use
+  them — see [project-phase-1.md](project-phase-1.md).
 
-_To be updated as later chunks provide evidence of the installs actually being
-carried out._
+Not separately evidenced in the conversations: the exact partition/swap choices and
+whether SSH keys were pasted at install time vs. generated later (the Phase 1 base-OS
+prep generates the SSH keys regardless).
 
 ---
 
@@ -93,3 +98,5 @@ carried out._
 |---|---|
 | 2026-05-22 | Phase 0 planning captured: AlmaLinux 9 Minimal Install, static networking, raw OSD disks, RAM consolidation, install-adjacent `/etc/hosts` setup. |
 | 2026-05-23 | Updated hardware prep for the PSU failure: 5080 retired, 7050 added as `compute3`, 512GB NVMe harvested into the 7071 boot, OSD topology 2+1+2. Confirmed FQDNs/IPs on `lab.internal` (.130–.133). |
+| 2026-05-23 | Marked the Phase 0 open items (firewall, SELinux, gateway/DNS) resolved (settled at the start of Phase 1); recorded the BIOS hyperthreading decision. |
+| 2026-05-23 | Updated "actual work completed" from "not yet evidenced" to **carried out**, based on Phase 1 running on the real installed nodes. |
