@@ -24,36 +24,58 @@
   minimum of 3 OSD hosts.
 - **Small VM flavors only.** 16GB on the compute/OSD nodes is tight once containers,
   OSDs, and VMs are all running.
-- **Learning is prioritized over speed.** The cluster is intentionally built three
-  times (see phases below); this is not the fastest path to a running cluster, and
-  that is the point.
+- **Learning is prioritized over speed.** The cluster is intentionally built up by
+  hand and then rebuilt (see phases below); this is not the fastest path to a
+  running cluster, and that is the point.
+- **OS: AlmaLinux 9, Minimal Install, SELinux enforcing** on all four nodes.
+- **Static IP addressing, no DHCP.** Nodes use hard-coded static IPs configured at
+  install time; no DHCP server is run and no DHCP reservations are used, so the
+  cluster cannot interfere with the home network it is plugged into.
+- **Keep tenant networking on overlays.** Tenant networks use VXLAN/Geneve overlays.
+  If a provider network is ever added, it must get its own VLAN — never the untagged
+  home LAN — so Neutron's dnsmasq cannot start answering DHCP for the whole house.
+- **Single Ceph MON on the controller (accepted SPOF).** The controller is a single
+  point of failure for both the OpenStack control plane and Ceph; acceptable given
+  the days-long lifespan, recorded as a deliberate choice.
+- **Tune `osd_memory_target` down (~1.5–2GB).** The 4GB default is too much for the
+  16GB OSD nodes; the lower target is baked into the Ceph config from the start.
 
 ## Phases
 
-The cluster is built **three times**, each phase motivated by the friction of the
-previous one.
+The cluster is built up by hand and then rebuilt, each phase motivated by the
+friction of the previous one. Phases are numbered 0–3.
 
-### Phase 1 — Manual, controller only
+### Phase 0 — Hardware prep and OS installation
+
+Physical preparation and a clean base OS on all four nodes. RAM consolidation
+(32/16/16/16), boot/OSD disk placement, and a fresh **AlmaLinux 9 Minimal Install**
+with static networking on every node. Details and execution log in
+[project-phase-0.md](project-phase-0.md).
+
+### Phase 1 — Ceph and the controller node, by hand
 
 Build the storage and control plane by hand to learn what the services *are*.
 
-- Stand up Ceph manually (`cephadm` bootstrap, or fully manual MON/MGR/OSD).
-- On the 7071, manually install and wire up a minimal OpenStack control plane:
-  **Keystone, Glance, Placement** — following the OpenStack install guide step by
-  step.
+- Bootstrap Ceph with **cephadm** (Ceph Squid 19.x), enroll all hosts, place the
+  5 OSDs, and create the `images`/`volumes`/`vms` pools for OpenStack.
+- On the controller (7071), manually install and wire up a minimal OpenStack control
+  plane: **Keystone, Glance (Ceph RBD backend), Placement** — plus its supporting
+  cast (RabbitMQ, MariaDB, memcached) — following the OpenStack install guide.
 - Outcome: understand Keystone tokens, the Glance→Ceph RBD integration, and why
   Placement exists.
+- Planned as 8 sections (host prep → Ceph bootstrap → OSDs → pools/RBD → OpenStack
+  prereqs → Keystone → Glance → Placement).
 
-### Transition — adding compute nodes with hand-rolled Ansible
+### Phase 2 — Compute nodes with hand-rolled Ansible
 
-Adding Nova-compute + Neutron agents to the 7060, 5090, and 5080 is the *same steps
+Adding nova-compute + Neutron agents to the 7060, 5090, and 5080 is the *same steps
 three times* — the natural seam to introduce Ansible.
 
 - Write playbooks to add the three compute nodes.
 - The manual steps are already known, so this is "translate known work into
   playbooks" — learning Ansible without simultaneously learning OpenStack.
 
-### Phase 2 — Full rebuild with Kolla-Ansible
+### Phase 3 — Full teardown and rebuild with Kolla-Ansible
 
 Tear down and redeploy the whole cluster with Kolla-Ansible.
 
@@ -63,12 +85,20 @@ Tear down and redeploy the whole cluster with Kolla-Ansible.
 
 ## Open Items
 
-These were deliberately left to be settled early in implementation:
+Settled during this stage of planning:
 
-- **OS choice** for the nodes (e.g., Ubuntu LTS vs. a RHEL-family distro).
-- **OpenStack release** version to target.
-- **IP addressing / hostname scheme** (flat network is fine for this).
-- **Phase 1 Ceph method** — bootstrapped via `cephadm` or fully by hand.
+- **OS choice** → **AlmaLinux 9** (switched from an initial lean toward AlmaLinux 10).
+- **OpenStack release** → **2025.1 "Epoxy"**.
+- **Phase 1 Ceph method** → **cephadm** bootstrap (Ceph Squid 19.x; Reef 18.x fallback).
+
+Still open:
+
+- **Domain / DNS suffix** — `cluster.lab.internal` proposed (fallback `os.test`); not
+  yet confirmed.
+- **Exact subnet / IP block** — `192.168.1.10–.13` used as the working example; the
+  real home-LAN subnet still needs confirming.
+- **Firewall on or off** — left undecided (assistant leaned toward leaving firewalld
+  on and adding rules as services come up).
 
 ---
 
@@ -79,3 +109,5 @@ These were deliberately left to be settled early in implementation:
 | 2026-05-22 | Initial project plan created: goals, 4-machine layout, 1G-only networking, and the 3-phase (manual → hand-rolled Ansible → Kolla-Ansible) progression. |
 | 2026-05-22 | Considered and rejected dropping to a 3-machine layout; kept all 4 machines (see [decisions.md](decisions.md)). |
 | 2026-05-22 | Confirmed the 3-phase progression over a Kolla-only build, despite the temporary nature of the cluster, because learning Ansible is an explicit goal. |
+| 2026-05-22 | Renumbered the phases to a 0–3 scheme: Phase 0 (hardware prep + OS install), Phase 1 (Ceph + controller by hand), Phase 2 (compute nodes via hand-rolled Ansible), Phase 3 (Kolla rebuild). Previously the docs labelled these "Phase 1 / transition / Phase 2". |
+| 2026-05-22 | Resolved three former open items: OS → AlmaLinux 9 (was leaning AlmaLinux 10), OpenStack release → 2025.1 "Epoxy", Phase 1 Ceph method → cephadm. |

@@ -12,8 +12,16 @@ Decisions made during planning and execution, with the reasoning behind each.
 | 4 | RAM split | **32 / 16 / 16 / 16** GB | The controller is the most service-dense node (control plane + Ceph MON/MGR), so it gets 32GB. Uses all 10 sticks (4+2+2+2). |
 | 5 | Ceph OSD layout | **5 OSDs across 3 hosts (3 + 1 + 1)** | Minimum for default 3× replication with a `host` failure domain. The 7060 carries 3 OSDs; each SFF carries 1. Lopsided, but Ceph handles it via CRUSH weighting, and watching it rebalance is part of the learning value. |
 | 6 | Network speed | **1G, flat** | 10/100 is too slow for Ceph replication; a single flat network is fine for a learning cluster. Ceph saturating the 1G link is an intended, instructive observable. |
-| 7 | Deployment method | **Manual → hand-rolled Ansible → Kolla-Ansible** | Explicit 3-phase learning progression; each phase is motivated by the friction of the previous one. |
+| 7 | Deployment method | **Phase 0 (prep/OS) → Phase 1 (manual Ceph + controller) → Phase 2 (hand-rolled Ansible compute) → Phase 3 (Kolla-Ansible rebuild)** | Explicit phased learning progression; each phase is motivated by the friction of the previous one. |
 | 8 | Cluster lifespan | **Temporary (a few days)** | Build, benchmark, tear down. This is a test/learning cluster, not a permanent deployment. |
+| 9 | Operating system | **AlmaLinux 9**, Minimal Install, SELinux enforcing | Switched from an initial lean toward AlmaLinux 10: RDO's EL10 packaging was still maturing in early 2026, which would bite the manual Phase 1 install hard. EL9 has mature, well-trodden RDO repos. |
+| 10 | OpenStack release | **2025.1 "Epoxy"** | Recent release with complete, stable RDO/EL9 repos and lots of install-guide coverage — the sweet spot on EL9. |
+| 11 | Ceph version | **Squid (19.x)** (Reef 18.x acceptable fallback) | Pairs with Epoxy-era OpenStack; installed via `centos-release-ceph-squid` on EL9. |
+| 12 | Ceph bootstrap method | **cephadm** | Chosen by the user over the assistant's lean toward a fully-manual MON/MGR/OSD bring-up. Trade-off on record: cephadm is itself a container-orchestration layer, so Kolla in Phase 3 becomes the *second* such layer, not the first. Learning value holds because daemons are still placed by hand. |
+| 13 | IP addressing | **Static IPs, no DHCP, no reservations** | Deterministic, always-known addressing (Ceph MONs configured by IP, Keystone endpoints are URLs, Kolla inventory is IP-based). Avoids dependence on the home router's lease table and guarantees no interference with the home network. Working example: controller .10, compute1 .11, compute2 .12, compute3 .13 (subnet TBD). |
+| 14 | Tenant networking | **Overlays (VXLAN/Geneve) only; provider nets on their own VLAN** | Keeps Neutron's dnsmasq off the untagged home LAN so it cannot answer DHCP for the whole house. |
+| 15 | Ceph MON quorum | **Single MON on the controller (accepted SPOF)** | Recorded as a deliberate choice, not an oversight: the controller is a single point of failure for both Ceph and the OpenStack control plane. Acceptable for a days-long cluster. |
+| 16 | OSD memory target | **Lowered to ~1.5–2GB** (from the 4GB default) | The 16GB OSD nodes cannot afford 4GB BlueStore cache per OSD; baked into the Ceph config from the start. |
 
 ## Decisions deliberately NOT taken (rejected options)
 
@@ -32,3 +40,4 @@ Decisions made during planning and execution, with the reasoning behind each.
 |---|---|
 | 2026-05-22 | Initial decision log recorded (machine count, retired machine, controller, RAM split, Ceph layout, networking, deployment method, lifespan). |
 | 2026-05-22 | Recorded rejected options: Frankenstein SFF power, dropping the 7060, the 10/100 switch, and a Kolla-only build. |
+| 2026-05-22 | Reworded decision #7 (deployment method) to use the 0–3 phase numbering. |

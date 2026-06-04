@@ -56,6 +56,13 @@ flavors only. Upgrade path if needed: 2× 16GB sticks per node (slots are availa
 - **Spare hardware after build:** ~4× 250GB SATA SSDs, plus the entire retired 7050
   chassis.
 
+**OSD disk handling at install time:** leave all OSD SATA SSDs completely **raw** —
+no partitions, no filesystem (Ceph wants whole, empty block devices). The OS
+installer must touch the **boot disk only**; explicitly deselect the OSD disks as
+install targets. **Record the serial numbers of every SSD across all machines** so
+the boot disk and the three OSD disks on the 7060 can be positively identified
+later (`lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,SERIAL`).
+
 ## Cabling
 
 - The **7071** and **7060** each have SATA power + data cables for **3 SSDs**.
@@ -69,6 +76,24 @@ flavors only. Upgrade path if needed: 2× 16GB sticks per node (slots are availa
 
 - 4× 1G network ports available, one NIC per machine.
 - A 10/100 switch is available but **not** used.
+- **Static IP addressing, configured at install time — no DHCP.** See
+  [project-plan.md](project-plan.md) and [decisions.md](decisions.md) for the
+  rationale.
+
+### Address plan
+
+Working example below; the real home-LAN subnet still needs confirming, and the
+domain suffix (`cluster.lab.internal` proposed) is not yet confirmed.
+
+| Machine | Hostname | IP (example) |
+|---|---|---|
+| 7071 | `controller` | `192.168.1.10` |
+| 7060 | `compute1` | `192.168.1.11` |
+| 5090 | `compute2` | `192.168.1.12` |
+| 5080 | `compute3` | `192.168.1.13` |
+
+The chosen block must sit **outside** the home router's DHCP pool. With no DNS for
+these names, every node carries the full hostname→IP map in `/etc/hosts`.
 
 ---
 
