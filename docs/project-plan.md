@@ -68,7 +68,7 @@ Build the storage and control plane by hand to learn what the services *are*.
 
 ### Phase 2 — Compute nodes with hand-rolled Ansible
 
-Adding nova-compute + Neutron agents to the 7060, 5090, and 5080 is the *same steps
+Adding nova-compute + Neutron agents to the 7060, 5090, and 7050 is the *same steps
 three times* — the natural seam to introduce Ansible.
 
 - Write playbooks to add the three compute nodes.
@@ -85,20 +85,26 @@ Tear down and redeploy the whole cluster with Kolla-Ansible.
 
 ## Open Items
 
-Settled during this stage of planning:
+Settled:
 
 - **OS choice** → **AlmaLinux 9** (switched from an initial lean toward AlmaLinux 10).
 - **OpenStack release** → **2025.1 "Epoxy"**.
 - **Phase 1 Ceph method** → **cephadm** bootstrap (Ceph Squid 19.x; Reef 18.x fallback).
+- **Domain / DNS suffix** → **`lab.internal`** (FQDNs `controller`/`compute1–3.lab.internal`).
+- **Static IPs** (subnet `192.168.1.0/24`) → `controller` .130 (7071), `compute1` .131
+  (7060), `compute2` .132 (5090), `compute3` .133 (7050).
 
 Still open:
 
-- **Domain / DNS suffix** — `cluster.lab.internal` proposed (fallback `os.test`); not
-  yet confirmed.
-- **Exact subnet / IP block** — `192.168.1.10–.13` used as the working example; the
-  real home-LAN subnet still needs confirming.
-- **Firewall on or off** — left undecided (assistant leaned toward leaving firewalld
-  on and adding rules as services come up).
+- **RDO / package repository setup** for OpenStack 2025.1 on AlmaLinux 9 — verify
+  repo availability/completeness as the first real Phase 1 step.
+- **Ceph release to pair with `cephadm`** — the version cephadm pulls by default vs.
+  an explicitly pinned release (Squid 19.x intended).
+- **Gateway / DNS specifics** — whether name resolution is purely local `/etc/hosts`
+  or a real DNS server is still to confirm.
+- **Firewall on or off** and **SELinux posture** — firewall left undecided (assistant
+  leaned toward leaving firewalld on); SELinux planned as enforcing but flagged for a
+  deliberate decision in implementation.
 
 ---
 
@@ -111,3 +117,4 @@ Still open:
 | 2026-05-22 | Confirmed the 3-phase progression over a Kolla-only build, despite the temporary nature of the cluster, because learning Ansible is an explicit goal. |
 | 2026-05-22 | Renumbered the phases to a 0–3 scheme: Phase 0 (hardware prep + OS install), Phase 1 (Ceph + controller by hand), Phase 2 (compute nodes via hand-rolled Ansible), Phase 3 (Kolla rebuild). Previously the docs labelled these "Phase 1 / transition / Phase 2". |
 | 2026-05-22 | Resolved three former open items: OS → AlmaLinux 9 (was leaning AlmaLinux 10), OpenStack release → 2025.1 "Epoxy", Phase 1 Ceph method → cephadm. |
+| 2026-05-23 | Resolved the domain (`lab.internal`) and static IPs (`.130–.133`); replaced them as open items with the remaining ones (RDO repo for 2025.1 on EL9, Ceph release pairing for cephadm, CIDR/gateway/DNS specifics, firewall/SELinux posture). Updated the Phase 2 compute-node list (5080 → 7050) for the PSU-failure hardware swap. |
