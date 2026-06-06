@@ -13,6 +13,7 @@ the configuration and Ansible code used to build the cluster.
 
 | Document | Description |
 |---|---|
+| [docs/project-principles.md](docs/project-principles.md) | The guiding principles behind the project (the *why* under the decisions). |
 | [docs/project-plan.md](docs/project-plan.md) | Project goals, rules/guidelines, and the major phases of the build plan. |
 | [docs/inventory.md](docs/inventory.md) | Hardware inventory (machines, CPUs, RAM, disks) and a hardware changelog. |
 | [docs/decisions.md](docs/decisions.md) | Decisions made during planning and execution, with the reasoning behind each. |

@@ -10,6 +10,9 @@
 
 ## Parameters / Rules / Guidelines
 
+The concrete constraints below operationalize the project's guiding philosophy — see
+[project-principles.md](project-principles.md) for the *why*.
+
 - **Temporary lifespan.** The cluster exists for a few days — build, benchmark, tear
   down. Decisions favor "interesting and representative for benchmarking" over
   long-term durability.

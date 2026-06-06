@@ -58,17 +58,18 @@ Consequences carried into the steps below:
 
 ## Learning approach
 
-The human's explicit goal here is to **learn how Ansible works**, so the phase is taught
-by *finding a template and modifying it for this cluster*, not by copy-pasting finished
-playbooks. The pedagogy: generate the standard skeletons (`ansible-galaxy role init`,
-`ansible-config init --disabled`), then walk each file line by line deciding **what is
-constant vs. what varies per host** — that pass is the learning, because it forces
-understanding of every setting. The phase is staged from low-stakes to real.
+Phase 2 follows the project's learning-first principles — *find a template and modify it
+for this cluster* rather than copy-pasting playbooks, and build understanding on
+low-stakes exercises before real services. See
+[project-principles.md](project-principles.md) (principles 1–4). The staged plan below
+applies them: generate the standard skeletons (`ansible-galaxy role init`,
+`ansible-config init --disabled`) and walk each file line by line, deciding what is
+constant versus what varies per host.
 
-> Caveat carried into implementation: 2025.1 service config keys can shift between minor
-> versions, and linuxbridge-vs-OVS guidance changes release to release — cross-check the
-> official RDO/AlmaLinux 2025.1 install guide (the same discipline that caught the
-> Ubuntu-specific Apache symlink in Phase 1).
+> Implementation caveat: 2025.1 service config keys can shift between minor versions, and
+> linuxbridge-vs-OVS guidance changes release to release — cross-check the official
+> RDO/AlmaLinux 2025.1 install guide (the same discipline that caught the Ubuntu-specific
+> Apache symlink in Phase 1).
 
 ## Ansible approach
 
@@ -195,3 +196,4 @@ the playbooks.
 |---|---|
 | 2026-05-23 | Phase 2 designed: scope (Nova + Neutron via hand-rolled Ansible, no teardown), **VXLAN self-service networking** chosen over flat-provider (dual-DHCP race) and VLAN (needs a managed switch), controller promoted to network node, Ansible role/layout outline, and the step plan. Open items recorded (tenant CIDR, floating-IP pool, MTU, Nova disk backend). |
 | 2026-05-23 | Reworked to a learning-oriented, staged method (find-and-modify templates, not copy-paste): added Stages 0–5, a throwaway `common` role to learn `template`/idempotence first, and `ansible-core` + `openstack.cloud`-only-for-bootstrap. **Changed the approach for controller-side Nova/Neutron to MANUAL one-time work** (no `nova_controller`/`neutron_controller` roles); only `nova_compute`/`neutron_compute` (plus the learning `common` role) are roles. |
+| 2026-06-06 | Moved the general learning-approach rationale to [project-principles.md](project-principles.md), leaving a reference plus the Phase-2-specific application and the 2025.1 caveat. |
