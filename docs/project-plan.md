@@ -69,9 +69,17 @@ Details and execution log in [project-phase-1.md](project-phase-1.md).
 ### Phase 2 — Compute nodes with hand-rolled Ansible
 
 Adding nova-compute + Neutron agents to the 7060, 5090, and 7050 is the *same steps
-three times* — the natural seam to introduce Ansible.
+three times* — the natural seam to introduce Ansible. No teardown; the controller
+keeps its Phase 1 services. Details and step plan in
+[project-phase-2.md](project-phase-2.md).
 
-- Write playbooks to add the three compute nodes.
+- Write idempotent playbooks (controller-side Nova/Neutron one-time; `nova_compute`
+  and `neutron_compute` roles looped across the compute group) to add the three
+  compute nodes.
+- **Tenant networking is VXLAN self-service** (Linux bridge): VMs on tunneled tenant
+  networks, a Neutron router NATing to a flat provider/external network, and floating
+  IPs — chosen to keep VM DHCP off the home LAN without a managed switch. The
+  controller becomes the network node.
 - The manual steps are already known, so this is "translate known work into
   playbooks" — learning Ansible without simultaneously learning OpenStack.
 
@@ -101,8 +109,19 @@ Settled:
   gateway for outbound.
 - **Firewall** → **firewalld disabled**. **SELinux** → **enforcing**.
 
-No planning open items remain. Phase 0 and Phase 1 are complete; the remaining work is
-Phase 2 (compute nodes via hand-rolled Ansible) and Phase 3 (Kolla-Ansible rebuild).
+Phase 0 and Phase 1 are complete. **Phase 2 implementation open items** (to settle in
+the Phase 2 chat):
+
+- **Tenant subnet CIDR** (e.g. `10.0.0.0/24`).
+- **Floating-IP allocation pool** from `192.168.1.0/24`, confirmed against the home
+  router's DHCP range and the static host IPs.
+- **VXLAN MTU handling** (raise underlay MTU vs. tenant network MTU 1450).
+- **Nova ephemeral disk backend** — local qcow2 vs. a Ceph RBD `vms` pool.
+- **`kvm` vs `qemu`** — `kvm` expected (VT-x i7s), pending a BIOS-virtualization check
+  per node.
+
+The remaining phases are Phase 2 (compute nodes via hand-rolled Ansible) and Phase 3
+(Kolla-Ansible rebuild).
 
 ---
 
@@ -117,3 +136,4 @@ Phase 2 (compute nodes via hand-rolled Ansible) and Phase 3 (Kolla-Ansible rebui
 | 2026-05-22 | Resolved three former open items: OS → AlmaLinux 9 (was leaning AlmaLinux 10), OpenStack release → 2025.1 "Epoxy", Phase 1 Ceph method → cephadm. |
 | 2026-05-23 | Resolved the domain (`lab.internal`) and static IPs (`.130–.133`); replaced them as open items with the remaining ones (RDO repo for 2025.1 on EL9, Ceph release pairing for cephadm, CIDR/gateway/DNS specifics, firewall/SELinux posture). Updated the Phase 2 compute-node list (5080 → 7050) for the PSU-failure hardware swap. |
 | 2026-05-23 | Phase 1 completed. Resolved the last open items (RDO Epoxy repo, Ceph Squid 19.2.x, local `/etc/hosts`/gateway, firewall disabled, SELinux enforcing) — no planning open items remain. Marked Phase 1 done and corrected its Ceph-pool note (only `images` created; `volumes`/`vms` deferred). |
+| 2026-05-23 | Phase 2 designed: added VXLAN self-service networking and the network-node role to the Phase 2 description; added Phase 2 implementation open items (tenant CIDR, floating-IP pool, MTU, Nova disk backend, kvm/qemu). Phases 0–3 left unchanged (a momentary "Kolla dropped" framing in the source chat was a confusion — Phase 3 remains planned). |

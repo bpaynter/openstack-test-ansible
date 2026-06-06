@@ -18,6 +18,7 @@ the configuration and Ansible code used to build the cluster.
 | [docs/decisions.md](docs/decisions.md) | Decisions made during planning and execution, with the reasoning behind each. |
 | [docs/project-phase-0.md](docs/project-phase-0.md) | Phase 0 — hardware prep and OS installation: planned steps and execution log. |
 | [docs/project-phase-1.md](docs/project-phase-1.md) | Phase 1 — Ceph + the controller node by hand: planned steps, config notes, and execution log. |
+| [docs/project-phase-2.md](docs/project-phase-2.md) | Phase 2 — compute nodes via hand-rolled Ansible: networking model, Ansible approach, and step plan. |
 
 > This documentation is being reconstructed from a series of planning and
 > implementation chats, one chunk at a time. The table of contents above will grow

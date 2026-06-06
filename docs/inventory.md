@@ -13,7 +13,7 @@ machines (5090 and 5080).
 
 | Service Tag | Model | CPU | Cores/Threads | Form Factor | DIMM Slots | Original Drive (removed) | Cluster Role |
 |---|---|---|---|---|---|---|---|
-| GSLX243 | OptiPlex 7071 MT | i7-9700 | 8C / 8T (up to 4.7 GHz) | Mini Tower | 4 | 1TB SATA HDD | **Controller + Ceph MON/MGR** (`controller`) |
+| GSLX243 | OptiPlex 7071 MT | i7-9700 | 8C / 8T (up to 4.7 GHz) | Mini Tower | 4 | 1TB SATA HDD | **Controller + Ceph MON/MGR + network node** (`controller`) |
 | 5MN6MR2 | OptiPlex 7060 MT | i7-8700 | 6C / 12T (up to 4.6 GHz) | Mini Tower | 4 | 1TB SATA HDD | **Compute + Ceph OSD** (`compute1`) |
 | 6VVT1N3 | OptiPlex 5090 SFF | i7-10700 | 8C / 16T (up to 4.8 GHz) | Small Form Factor | 4 | — (512GB NVMe retained) | **Compute + Ceph OSD** (`compute2`) |
 | 7SMVXM2 | OptiPlex 7050 MT | i7-7700 | 4C / 8T (up to 4.2 GHz) | Mini Tower | 4 | 500GB SATA HDD | **Compute + Ceph OSD** (`compute3`) |
@@ -110,6 +110,13 @@ The 7050 is `compute3` because it is the weakest node. The subnet is
 `192.168.1.0/24`; the block sits outside the home router's DHCP pool. With no DNS for
 these names, every node carries the full hostname→IP map in `/etc/hosts`.
 
+These host addresses are the **underlay**. From Phase 2 on, VM tenant traffic runs on
+a **VXLAN overlay** over this same single 1G link (so Ceph replication, OpenStack
+management, and VXLAN tunnel traffic all share the wire). VMs get private tenant IPs
+(e.g. `10.0.0.0/24`); external reachability is via a Neutron router and **floating IPs**
+carved from `192.168.1.0/24` (outside the home DHCP range and `.130–.133`). The
+controller is the network node. See [project-phase-2.md](project-phase-2.md).
+
 ---
 
 ## Changelog
@@ -124,3 +131,4 @@ these names, every node carries the full hostname→IP map in `/etc/hosts`.
 | 2026-05-23 | Harvested 5080 NVMe placed in the **7071 as its boot disk** (controller now NVMe-boots); the 5090 keeps its own NVMe. |
 | 2026-05-23 | **Correction:** "3 SATA SSDs" on the 7060/7050 is the **total** bay capacity (1 boot + 2 OSD), not 3 OSDs plus a separate boot disk. Earlier docs over-counted (following the chunk-01 build plan). OSD topology revised to **2 + 1 + 2 = 5 OSDs across 3 hosts** (was 3 + 1 + 1; same total of 5, better balanced). Spare SATA SSDs revised from ~4 to 3. |
 | 2026-05-23 | Address plan confirmed (replacing the earlier example): domain **`lab.internal`**; `controller` .130/7071, `compute1` .131/7060, `compute2` .132/5090, `compute3` .133/7050. |
+| 2026-05-23 | Controller (7071) also designated the **network node** (Neutron L3/DHCP/metadata agents) for the Phase 2 VXLAN overlay; documented the underlay-vs-overlay split. |

@@ -19,7 +19,7 @@ Decisions made during planning and execution, with the reasoning behind each.
 | 11 | Ceph version | **Squid (19.x)** (Reef 18.x acceptable fallback) | Pairs with Epoxy-era OpenStack; installed via `centos-release-ceph-squid` on EL9. |
 | 12 | Ceph bootstrap method | **cephadm** | Chosen by the user over the assistant's lean toward a fully-manual MON/MGR/OSD bring-up. Trade-off on record: cephadm is itself a container-orchestration layer, so Kolla in Phase 3 becomes the *second* such layer, not the first. Learning value holds because daemons are still placed by hand. |
 | 13 | IP addressing | **Static IPs, no DHCP, no reservations** | Deterministic, always-known addressing (Ceph MONs configured by IP, Keystone endpoints are URLs, Kolla inventory is IP-based). Avoids dependence on the home router's lease table and guarantees no interference with the home network. Confirmed on subnet `192.168.1.0/24`: `controller` .130 (7071), `compute1` .131 (7060), `compute2` .132 (5090), `compute3` .133 (7050). Gateway/DNS still to confirm. |
-| 14 | Tenant networking | **Overlays (VXLAN/Geneve) only; provider nets on their own VLAN** | Keeps Neutron's dnsmasq off the untagged home LAN so it cannot answer DHCP for the whole house. |
+| 14 | Tenant networking | **VXLAN self-service** (Linux bridge driver) | Tenant networks tunnel VM traffic over the `192.168.1.0/24` underlay, sealing VM DHCP inside the overlay so it cannot race the home router's DHCP server (the "dual-DHCP" problem). A Neutron router NATs to a **flat provider/external network** on `192.168.1.0/24`; VMs reach the outside via **floating IPs**. Achieves the isolation a VLAN would give but in software, with no managed switch. (Supersedes the earlier "overlays + provider-on-its-own-VLAN" sketch.) |
 | 15 | Ceph MON quorum | **Single MON on the controller (accepted SPOF)** | Recorded as a deliberate choice, not an oversight: the controller is a single point of failure for both Ceph and the OpenStack control plane. Acceptable for a days-long cluster. |
 | 16 | OSD memory target | **Lowered to ~1.5–2GB** (from the 4GB default) | The 16GB OSD nodes cannot afford 4GB BlueStore cache per OSD; baked into the Ceph config from the start. |
 | 17 | Domain / DNS suffix | **`lab.internal`** | Confirmed by the user (FQDNs `controller.lab.internal`, `compute1–3.lab.internal`). Supersedes the earlier *proposed* `cluster.lab.internal`. A reserved/non-routable TLD that cannot collide with a real domain. |
@@ -29,6 +29,8 @@ Decisions made during planning and execution, with the reasoning behind each.
 | 21 | Name resolution | **Local `/etc/hosts` on all nodes, no DNS** | A 4-node throwaway cluster doesn't need real DNS; identical `/etc/hosts` files map all four FQDNs/short names. Nodes still use the normal LAN gateway for outbound internet (package/container pulls). |
 | 22 | Firewall | **firewalld disabled** | Pragmatic for a short-lived, isolated lab — removes a whole category of "why can't this daemon talk" debugging. Keeping it on would mean opening a long per-service port list with little Phase 1 learning value. |
 | 23 | Ceph hostnames | **FQDNs (`*.lab.internal`) with `cephadm bootstrap --allow-fqdn-hostname`** | Keeps Ceph identifiers consistent with the OS hostnames and `/etc/hosts`; the bootstrap check guards against mixing short and FQDN names, not against FQDNs. All `ceph orch host add` use FQDNs. Cost is purely cosmetic (longer daemon/host names). |
+| 24 | Neutron mechanism driver | **Linux bridge** | Fewer moving parts to debug than OVS for a learning cluster; supports the VXLAN overlay (`enable_vxlan`, per-host `local_ip` tunnel endpoint). |
+| 25 | Network node | **The controller (7071)** | The 7071 runs the Neutron L3, DHCP, and metadata agents in addition to its control-plane and Ceph MON/MGR roles. Concentrating the network node on the controller fits the single-NIC, days-long cluster. |
 
 ## Decisions deliberately NOT taken (rejected options)
 
@@ -41,6 +43,8 @@ Decisions made during planning and execution, with the reasoning behind each.
 | R5 | Drop to a 3-node cluster after the 5080 PSU failure | **Rejected** | A 3-node cluster (7071 + 7060 + 5090) would leave only 2 OSD hosts (7060 + 5090), which cannot satisfy 3× replication with a `host` failure domain. The weak 7050 is worth keeping precisely because it restores a third OSD host. |
 | R6 | Put the harvested NVMe in a tower as an OSD (to reach 6 OSDs) | **Rejected** | One NVMe OSD in an otherwise all-SATA pool creates a heterogeneous pool that muddies benchmark numbers, and it would leave the controller booting from SATA. Matched OSDs + a fast NVMe controller is the better setup. |
 | R7 | Boot the towers from USB / ODD bay to free all 3 SATA bays as OSDs | **Rejected** | USB boot disks are slow and flaky — an unwanted variable in a benchmark cluster. |
+| R8 | Flat provider networking for tenants (VMs directly on `192.168.1.0/24`) | **Rejected** | Puts VM DHCP on the same L2 broadcast domain as the home router's DHCP server — a dual-DHCP race where either server can answer the other's clients. Disjoint pools prevent duplicate IPs but not the cross-answering. |
+| R9 | VLAN-based tenant isolation | **Rejected** | Would cleanly solve the dual-DHCP race, but requires a managed switch that is not in play (the 10/100 switch was set aside). VXLAN achieves the same isolation in software. |
 
 ---
 
@@ -54,3 +58,4 @@ Decisions made during planning and execution, with the reasoning behind each.
 | 2026-05-23 | Changed decision #2: the retired machine is now the **5080** (dead PSU), not the 7050; the 7050 returns as the fourth node. |
 | 2026-05-23 | Changed decision #5: OSD layout revised from 3+1+1 to **2+1+2** (still 5 OSDs / 3 hosts) after confirming towers hold 3 SATA SSDs *total*. |
 | 2026-05-23 | Changed decision #13: IP plan updated from the earlier `.10–.13` example to the **confirmed `.130–.133`** addresses on `lab.internal`. |
+| 2026-05-23 | Changed decision #14 (tenant networking) to the concrete **VXLAN self-service** model (Linux bridge, Neutron router to a flat external net, floating IPs), superseding the earlier "overlays + provider-on-VLAN" sketch. |
