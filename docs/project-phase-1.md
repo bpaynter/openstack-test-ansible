@@ -56,7 +56,12 @@ These were the remaining open items from earlier planning; all were settled here
    RabbitMQ (create the `openstack` user), memcached (listen on the controller IP).
 5. **Keystone (identity)** — DB + `db_sync`, `fernet_setup`/`credential_setup`,
    `keystone-manage bootstrap`, Apache/WSGI, `admin-openrc`, confirm with
-   `openstack token issue`.
+   `openstack token issue`. **Then create the shared `service` project that every
+   service account lives in — `openstack project create --domain default service` —
+   before installing any service (Glance, Placement, …).** RDO packaging does not
+   reliably create it, and a missing `service` project makes later
+   `role add --project service` grants silently no-op (this caused the Glance 401 in
+   issue #5 below).
 6. **Glance (image service), Ceph RBD backend** — DB, Keystone identity + endpoints,
    wire to Ceph, upload CirrOS, confirm the image UUID appears in `rbd -p images ls`.
 7. **Placement (resource inventory)** — DB, Keystone identity + endpoints, runs under
@@ -92,8 +97,11 @@ These were the remaining open items from earlier planning; all were settled here
 - **`[keystone_authtoken]`** is near-identical across services; only `username`/
   `password` change. `www_authenticate_uri` and `auth_url` both = `http://controller:5000`
   (no `/v3`), `memcached_servers = controller:11211`, `auth_type = password`,
-  `project_name = service`, domains `Default`. It is a matched set with two CLI steps:
-  `openstack user create … <svc>` and `openstack role add --project service --user <svc> admin`.
+  `project_name = service`, domains `Default`. It is a matched set with two CLI steps —
+  `openstack user create … <svc>` and `openstack role add --project service --user <svc>
+  admin` — and one **prerequisite**: the `service` project must already exist
+  (`openstack project create --domain default service`), or the role grant silently
+  attaches to nothing.
 - **Ceph keyring** (`/etc/ceph/ceph.client.glance.keyring`) is an INI file:
   `[client.glance]` header + `key` + three `caps` lines (`mon`/`osd`/`mgr` =
   `profile rbd[ pool=images]`). Regenerate cleanly with
@@ -123,11 +131,16 @@ fully verified control plane. Notable events and the five problems hit:
    (and `restorecon -Rv /etc/ceph/` if SELinux denies).
 4. **Glance image create → `401 Unauthorized`** — service started but the first real
    request failed authentication.
-5. **Root cause of the 401: a typo** — the role grant had been run as
-   `openstack role add --project service --user glance admi` (missing the `n` in
-   `admin`), so the `glance` user never got the `admin` role in the `service` project.
-   Re-running with the correct `admin` fixed it, after which the CirrOS upload
-   succeeded and the image UUID appeared in `rbd -p images ls`.
+5. **Root cause of the 401: the `service` project had never been created.** The
+   `openstack role add --project service --user glance admin` grant silently affected
+   nothing because the `service` project did not exist — `openstack project create
+   --domain default service` had been missed. (RDO packaging *sometimes* creates this
+   project for you; here it had to be created explicitly.) Creating the project and
+   re-running the role grant fixed it — verified with `openstack role assignment list
+   --user glance --names` showing the `admin` role on `service` — after which the
+   CirrOS upload succeeded and the image UUID appeared in `rbd -p images ls`. The
+   lesson: ensure the `service` project exists *before* granting service-account roles
+   in it, and verify each grant with `role assignment list` rather than assuming it took.
 
 **Final verified state at handoff:** containerized 5-OSD Ceph (`HEALTH_OK`, 2+1+2
 across the three hosts), Keystone issuing Fernet tokens (`openstack token issue`),
@@ -153,3 +166,4 @@ Kolla-Ansible rebuild is Phase 3).
 | Date | Change |
 |---|---|
 | 2026-05-23 | Phase 1 executed and completed: cephadm Ceph bootstrap (Squid, `--allow-fqdn-hostname`), 5 OSDs (2+1+2), `images` pool + `client.glance`, OpenStack 2025.1 Keystone/Glance(Ceph RBD)/Placement on the controller. Open items (name resolution, gateway, SELinux, firewall, Ceph release, FQDN hostnames) settled. Five problems documented with fixes. |
+| 2026-06-06 | **Corrected the root cause of issue #5 (the Glance 401).** It was *not* an `admi` typo (that was a copy/paste slip into the chat; the real command had `admin`) — the `service` project had never been created, so the role grant no-opped. Added the missing `openstack project create --domain default service` to the Keystone step and the service-account-pattern note. |

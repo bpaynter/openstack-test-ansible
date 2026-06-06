@@ -73,9 +73,10 @@ re-litigate or trip over them.
 
 Cross-check against the authoritative source (the official 2025.1 / RDO / Ceph docs)
 rather than trusting generic instructions — the Apache symlink step turned out to be
-Ubuntu-specific. Confirm that an action actually took effect (verify role grants with
-`role assignment list`; the missing `n` in `admi` cost a debugging session). Read the
-log before changing things blindly.
+Ubuntu-specific. Confirm that an action actually took effect and that its prerequisites
+exist (a `role add --project service` silently no-ops when the `service` project was
+never created — that caused the Glance 401, and `role assignment list` would have
+revealed it). Read the log before changing things blindly.
 
 ## 11. Be consistent
 
@@ -97,3 +98,4 @@ same wire — that is something to *watch and learn from*, not to fix.
 | Date | Change |
 |---|---|
 | 2026-06-06 | Initial principles document collated from chunks 01–06 (learning-first approach, phase-friction progression, find-and-modify learning, automate-the-repetition, disposable cluster, honest benchmarking, pragmatic lab trade-offs, home-network isolation, deliberate decision-logging, verify-don't-assume, consistency, constraints-as-observables). |
+| 2026-06-06 | Corrected the principle #10 example: the Glance 401 was caused by the missing `service` project, not an `admi` typo. |

@@ -115,9 +115,9 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
    important module (`template`), and idempotence — before touching Nova.
 3. **Stage 3 — Controller-side Nova & Neutron (MANUAL, one-time)** — *not* a role, because
    the Ansible seam is repetition and this isn't repeated. Done by hand following the
-   2025.1 guide, reusing the Phase 1 service-account pattern (user create → role add
-   `--project service` → `[keystone_authtoken]`; **verify each grant** with `role
-   assignment list` — the Phase 1 issue #5 typo class).
+   2025.1 guide, reusing the Phase 1 service-account pattern (ensure the `service`
+   project exists → user create → role add `--project service` → `[keystone_authtoken]`;
+   **verify each grant** with `role assignment list` — the Phase 1 issue #5 lesson).
    - **Nova:** `nova`/`nova_api`/`nova_cell0` DBs + `nova` service user; install
      nova-api/conductor/scheduler/novncproxy; configure `nova.conf`; the `nova-manage
      cell_v2` cell setup is the one unfamiliar part vs. Phase 1 — read the guide's cell
@@ -171,8 +171,10 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 
 ## Problems anticipated (Phase 1 lessons carried forward)
 
-- **Role-grant typos (Phase 1 issue #5)** — every `openstack role add` is a 401 waiting
-  to happen; add an explicit `role assignment list` verification after each grant.
+- **Missing `service` project / unverified role grants (Phase 1 issue #5)** — a
+  `role add --project service` silently no-ops if the `service` project doesn't exist,
+  which surfaces only as a later 401. Ensure the `service` project exists, and add an
+  explicit `role assignment list` verification after each grant.
 - **Ceph file permissions (issue #3)** — if Nova goes RBD-backed, the `nova`/`qemu` user
   must read `/etc/ceph/` files: `chown root:<group>` + `chmod 640` + `restorecon`.
 - **Per-node device/NIC names (issue #2)** — NIC names differ across these OptiPlex
@@ -197,3 +199,4 @@ the playbooks.
 | 2026-05-23 | Phase 2 designed: scope (Nova + Neutron via hand-rolled Ansible, no teardown), **VXLAN self-service networking** chosen over flat-provider (dual-DHCP race) and VLAN (needs a managed switch), controller promoted to network node, Ansible role/layout outline, and the step plan. Open items recorded (tenant CIDR, floating-IP pool, MTU, Nova disk backend). |
 | 2026-05-23 | Reworked to a learning-oriented, staged method (find-and-modify templates, not copy-paste): added Stages 0–5, a throwaway `common` role to learn `template`/idempotence first, and `ansible-core` + `openstack.cloud`-only-for-bootstrap. **Changed the approach for controller-side Nova/Neutron to MANUAL one-time work** (no `nova_controller`/`neutron_controller` roles); only `nova_compute`/`neutron_compute` (plus the learning `common` role) are roles. |
 | 2026-06-06 | Moved the general learning-approach rationale to [project-principles.md](project-principles.md), leaving a reference plus the Phase-2-specific application and the 2025.1 caveat. |
+| 2026-06-06 | Corrected the Phase 1 issue #5 references: the lesson is "ensure the `service` project exists + verify role grants," not "role-grant typos." |
