@@ -31,6 +31,7 @@ Decisions made during planning and execution, with the reasoning behind each.
 | 23 | Ceph hostnames | **FQDNs (`*.lab.internal`) with `cephadm bootstrap --allow-fqdn-hostname`** | Keeps Ceph identifiers consistent with the OS hostnames and `/etc/hosts`; the bootstrap check guards against mixing short and FQDN names, not against FQDNs. All `ceph orch host add` use FQDNs. Cost is purely cosmetic (longer daemon/host names). |
 | 24 | Neutron mechanism driver | **Linux bridge** | Fewer moving parts to debug than OVS for a learning cluster; supports the VXLAN overlay (`enable_vxlan`, per-host `local_ip` tunnel endpoint). |
 | 25 | Network node | **The controller (7071)** | The 7071 runs the Neutron L3, DHCP, and metadata agents in addition to its control-plane and Ceph MON/MGR roles. Concentrating the network node on the controller fits the single-NIC, days-long cluster. |
+| 26 | Ansible scope | **Only the repeated compute-node work is rolled into Ansible** (`nova_compute`/`neutron_compute`, plus a throwaway `common` role for learning); controller-side Nova/Neutron is done **manually** (one-time) | The Ansible "seam" is repetition, and the one-time controller bring-up isn't repeated — forcing it into a role would add complexity without the payoff. Compute1/2/3 are the "same steps three times," which is where roles + per-host inventory variables earn their place. Also serves the learning goal: build understanding on a low-stakes `common` role first. |
 
 ## Decisions deliberately NOT taken (rejected options)
 
