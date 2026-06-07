@@ -4,10 +4,9 @@ Physical preparation of the four machines and a clean base OS on each, leaving e
 node statically addressed, correctly named, and ready for the Phase 1 Ceph +
 controller bring-up.
 
-> **Status:** Planned. The processed conversations cover the planning of this phase
-> in detail but contain **no explicit confirmation that the installs were completed**.
-> The "Actual work completed" section will be filled in as evidence appears in later
-> chunks.
+> **Status:** **Complete** (carried out — evidenced indirectly by Phase 1 running on the
+> real installed nodes; see "Actual work completed" below). The conversations cover the
+> planning in detail; a few install-time specifics were never separately confirmed.
 
 See [inventory.md](inventory.md) for the hardware and address plan, and
 [decisions.md](decisions.md) for the reasoning behind the OS and networking choices.
@@ -16,19 +15,14 @@ See [inventory.md](inventory.md) for the hardware and address plan, and
 
 ### Hardware prep
 
-- **RAM consolidation** to 32 / 16 / 16 / 16 GB (controller 7071 / 7060 / 5090 /
-  7050), using all 10× 8GB sticks including the two pulled from the retired 5080.
-- **Disk placement** (the 5080 is retired with a dead PSU; the 7050 is the fourth
-  node; the 5080's 512GB NVMe is harvested into the 7071):
-  - Controller (7071): 512GB NVMe (harvested from 5080) boot, no OSDs.
-  - 7060: 1× 250GB SATA SSD boot + 2× 250GB SATA SSD OSDs (3 SATA bays total).
-  - 5090: 512GB NVMe boot + 1× 250GB SATA SSD OSD.
-  - 7050: 1× 250GB SATA SSD boot + 2× 250GB SATA SSD OSDs (3 SATA bays total).
-  - OSD topology: 2 + 1 + 2 = 5 OSDs across 3 hosts.
-- **Record the serial number of every SSD** so the boot disk and OSD disks can be
-  positively identified at install time and in Phase 1.
-- **BIOS:** leave **hyperthreading enabled** (default) on the compute nodes (7060,
-  5090, 7050); the 7071 has none. See [decisions.md](decisions.md).
+- **Consolidate RAM and place disks per the layout in
+  [inventory.md](inventory.md)** — 32/16/16/16 GB; controller NVMe boot (harvested from
+  the retired 5080); 2+1+2 OSDs across 7060/5090/7050.
+- **Leave OSD SATA SSDs raw** (no partitions/filesystem) and **record every SSD's serial
+  number** so the boot disk and OSD disks can be positively identified at install time
+  and in Phase 1 (`lsblk -o NAME,SIZE,TYPE,MOUNTPOINT,SERIAL`).
+- **BIOS:** leave **hyperthreading enabled** (default) on the compute nodes; the 7071
+  has none (decision recorded in [decisions.md](decisions.md)).
 
 ### OS install (per node) — AlmaLinux 9, Minimal Install
 
@@ -100,3 +94,4 @@ prep generates the SSH keys regardless).
 | 2026-05-23 | Updated hardware prep for the PSU failure: 5080 retired, 7050 added as `compute3`, 512GB NVMe harvested into the 7071 boot, OSD topology 2+1+2. Confirmed FQDNs/IPs on `lab.internal` (.130–.133). |
 | 2026-05-23 | Marked the Phase 0 open items (firewall, SELinux, gateway/DNS) resolved (settled at the start of Phase 1); recorded the BIOS hyperthreading decision. |
 | 2026-05-23 | Updated "actual work completed" from "not yet evidenced" to **carried out**, based on Phase 1 running on the real installed nodes. |
+| 2026-06-07 | Consistency pass: status corrected to **Complete** (matching the body); stubbed the RAM/disk-layout restatement to point at [inventory.md](inventory.md). |

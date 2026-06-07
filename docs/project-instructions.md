@@ -3,45 +3,29 @@
 Working guidance for any assistant (or person) helping with this cluster. It is *not*
 a substitute for the reference docs — it explains **how** to engage with them. For the
 *why* behind the project, see [project-principles.md](project-principles.md); for the
-*what*, see the documents listed below.
+*what*, see the docs listed in the [README](../README.md#documentation).
 
 ## What this project is
 
-A temporary, hands-on **learning** build of a 4-node OpenStack + Ceph cluster on
-retired Dell OptiPlex desktops. The goal is to understand how the services work, not to
-ship production infrastructure. The cluster is stood up, benchmarked, and torn down
-within a few days, and is built deliberately the slow way so each step is motivated by
-the friction of the previous one (see [project-principles.md](project-principles.md)).
+A temporary, hands-on **learning** build of a 4-node OpenStack + Ceph cluster on retired
+OptiPlex desktops — understand how the services work, benchmark, then tear it down. See
+the [README](../README.md) for the overview and [project-principles.md](project-principles.md)
+for the philosophy.
 
 ## Source-of-truth documents
 
-These docs are authoritative; treat them as the source of truth and keep them current.
-
-| Doc | Holds |
-|---|---|
-| [project-principles.md](project-principles.md) | The guiding principles (the *why*). |
-| [project-plan.md](project-plan.md) | Goals, parameters, the Phase 0–3 structure, open items. |
-| [decisions.md](decisions.md) | Every settled decision with rationale, plus rejected options. |
-| [inventory.md](inventory.md) | Hardware, RAM, disk, and the host/IP/network map. |
-| [project-phase-0.md](project-phase-0.md) … [project-phase-2.md](project-phase-2.md) | Per-phase planned steps and execution logs. |
-
-When these and any older pasted "build plan" disagree, **these docs win** — they carry
-the corrections (e.g. the real cause of the Phase 1 Glance 401 was the missing `service`
-project, not a typo; the project is a four-phase 0–3 plan and **Phase 3 — the Kolla
-rebuild — is still planned**, not dropped).
+The reference docs (listed in the [README](../README.md#documentation)) are
+authoritative; treat them as the source of truth and keep them current. When they and
+any older pasted "build plan" disagree, **these docs win** — they carry the corrections
+(e.g. the real cause of the Phase 1 Glance 401 was the missing `service` project, not a
+typo; the project is a four-phase 0–3 plan and **Phase 3 — the Kolla rebuild — is still
+planned**, not dropped).
 
 ## Current status
 
-- **Phase 0 (hardware prep + OS install)** — complete.
-- **Phase 1 (Ceph + controller by hand)** — **complete and verified.** Ceph (cephadm,
-  5 OSDs, `HEALTH_OK`) plus Keystone, Glance (Ceph RBD-backed), and Placement run on the
-  controller.
-- **Phase 2 (compute nodes via hand-rolled Ansible)** — **active.** Design is done
-  (VXLAN self-service networking, the staged Ansible approach). **Stages 0–1 (Ansible
-  control node + cluster inventory) are complete and verified; Stage 2 (the throwaway
-  `common` role rendering `/etc/hosts`) is in progress.** Open items are tracked in
-  [project-plan.md](project-plan.md) and [project-phase-2.md](project-phase-2.md).
-- **Phase 3 (full teardown + rebuild with Kolla-Ansible)** — planned, later.
+Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–1 done, Stage 2 in
+progress); Phase 3 is planned for later. The authoritative phase/stage status lives in
+[project-plan.md](project-plan.md#phases).
 
 ## How to help
 
@@ -73,3 +57,4 @@ rebuild — is still planned**, not dropped).
 | 2026-06-06 | Created from the chunk-07 standardization attempt, adapted to this repo's doc set, the 0–3 phase structure (Phase 3 retained), and the corrected Phase 1 issue #5 root cause. |
 | 2026-05-24 | Updated status (Phase 2 Stages 0–1 complete, Stage 2 next) and added Ansible (uv community 13 / core 2.20, docs v13) to the established stack. |
 | 2026-06-04 | Updated status: Stage 2 (the `common` role) in progress. |
+| 2026-06-07 | Consistency/dedup pass: replaced the doc-map table with a pointer to the README TOC; condensed Current status to a pointer to [project-plan.md](project-plan.md#phases). |
