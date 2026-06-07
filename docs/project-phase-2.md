@@ -7,10 +7,11 @@ agents). The work is the *same steps three times* across compute1/2/3 — exactl
 repetition that hand-rolled Ansible exists to absorb. There is **no teardown**: the
 controller keeps its Phase 1 services and Phase 2 adds to it.
 
-> **Status:** **Planned.** This chunk produced the Phase 2 design (scope, networking
-> model, Ansible structure, step outline). The detailed, config-level steps —
-> especially the VXLAN Neutron rewrite — are produced in a later implementation chat;
-> no Phase 2 execution is reported yet.
+> **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
+> staged Ansible approach). **Stages 0 and 1 (Ansible control node + cluster inventory)
+> are executed and verified** — see "Actual work completed" below. Stages 2–5 (roles
+> and the controller-side bring-up) are still ahead; the detailed VXLAN Neutron config
+> is produced in a later implementation chat.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -77,13 +78,22 @@ Run Ansible from the **controller** as the control node (it already has SSH reac
 `admin-openrc`, and sits inside `lab.internal` so name resolution already works).
 Ansible installs nothing on managed nodes — it pushes Python over SSH and runs modules.
 
-- Install **`ansible-core`** (the engine + built-in modules). The Nova/Neutron *install*
-  work uses only built-in modules (`dnf`, `template`, `service`, `command`) — good for
-  learning. Add the **`openstack.cloud`** collection (`ansible-galaxy collection install
-  openstack.cloud`) only for the final network-bootstrap stage (API-driven, not file
-  edits).
-- Set up passwordless SSH **and** passwordless `sudo` from the controller to itself and
-  compute1/2/3 (test with `sudo -n true`).
+- Install Ansible via **`uv`** (`uv tool install ansible --python 3.12`) — the full
+  community package (community **13.7** / `ansible-core` **2.20**), which bundles
+  `openstack.cloud` for the Stage 5 bootstrap. *Not* the AlmaLinux `dnf` package (its
+  `ansible-core` is end-of-life and too old to match the live docs). The Nova/Neutron
+  install work still uses only built-in modules (`dnf`, `template`, `service`,
+  `command`); `openstack.cloud` is only needed at Stage 5. See [decisions.md](decisions.md).
+- Set up passwordless SSH from the controller to itself and compute1/2/3, but keep
+  `sudo` **password-protected** (a deliberate security choice — *not* passwordless);
+  escalate with `-K` / `--ask-become-pass` at run time (see the escalation model in
+  [decisions.md](decisions.md)).
+- **`ansible.cfg`** (project-local, in the git repo) keeps a short, deliberate set of
+  settings: the `inventory` path, `stdout_callback = yaml` and
+  `callbacks_enabled = profile_tasks` (legible, educational output),
+  `interpreter_python = auto_silent`. `become` is left **default-off** so escalation is
+  per-play/per-task and a missing `become:` fails loudly rather than silently running as
+  root.
 - **Inventory** (YAML preferred): a `controller` group (one host) and a `compute` group
   (compute1/2/3) by FQDN. Per-host variables live with the host — critically the
   **`local_ip`** (each compute node's own `192.168.1.x` VXLAN tunnel endpoint); group
@@ -102,11 +112,11 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 
 ## Planned steps (staged for learning)
 
-0. **Stage 0 — Ansible control setup** — install `ansible-core` on the controller, set
-   up passwordless SSH + sudo.
-1. **Stage 1 — Inventory + prove connectivity** — build the YAML inventory (groups +
-   per-host `local_ip`), then `ansible all -m ping` and an ad-hoc `command` to confirm
-   targeting. ("A playbook is just ad-hoc commands made repeatable.")
+0. **Stage 0 — Ansible control setup** ✅ *complete* — Ansible (via `uv`) on the
+   controller, SSH + escalation model settled, project `ansible.cfg` + git repo.
+1. **Stage 1 — Inventory + prove connectivity** ✅ *complete* — YAML inventory (groups +
+   per-host `local_ip`), verified with `ansible-inventory --graph` and `ansible all -m
+   ping`. ("A playbook is just ad-hoc commands made repeatable.")
 2. **Stage 2 — A throwaway `common` role to learn the mechanics** — `ansible-galaxy role
    init common`, then a low-stakes, genuinely useful task: render `/etc/hosts` identically
    on all four nodes via the `template` module (`templates/hosts.j2` → `/etc/hosts`).
@@ -167,7 +177,8 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 - **Nova ephemeral disk backend** — local qcow2 vs. Ceph RBD `vms` pool.
 - **`kvm` vs `qemu`** — `kvm` expected (VT-x i7s), but BIOS virtualization must be
   confirmed enabled on each node.
-- The Ansible project layout, inventory, and `ansible-vault` secret handling.
+- **`ansible-vault` secret handling** — deferred to Stage 4 (the Ansible project layout
+  and inventory were settled in Stages 0–1).
 
 ## Problems anticipated (Phase 1 lessons carried forward)
 
@@ -187,8 +198,73 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 
 ## Actual work completed
 
-None yet — this chunk is Phase 2 *planning*. To be filled in as later chunks execute
-the playbooks.
+### Stages 0–1 — Ansible control node + inventory (complete, verified 2026-05-24)
+
+**Stage 0 — Ansible control node:**
+
+- **Control node:** the controller (7071), inside `lab.internal` so `/etc/hosts` already
+  resolves every managed node.
+- **Ansible install:** via **`uv`**, not the AlmaLinux `dnf` package (its `ansible-core`
+  2.14/2.15 line is end-of-life and too old to match the live docs). Final:
+  `uv python install 3.12` then `uv tool install ansible --python 3.12` →
+  community **13.7** / `ansible-core` **2.20** on **Python 3.12**. Match all Ansible doc
+  references to **version 13**.
+- **Escalation model:** Ansible runs as the normal login user — never as root, never
+  `sudo ansible-playbook`. `sudo` is left **password-protected** (a deliberate security
+  choice, not passwordless); escalation is per-play/per-task `become` with `-K` /
+  `--ask-become-pass` at run time. `become` is default-**off** in `ansible.cfg`.
+- **`ansible.cfg`** (project-local): `inventory` path, `stdout_callback = yaml`,
+  `callbacks_enabled = profile_tasks`, `interpreter_python = auto_silent`. (`become` not
+  set; `become_ask_pass` was tried then removed — see problem 5. `remote_user` is not
+  set: the same account is used locally and remotely, so Ansible's default of connecting
+  as the current user is correct.)
+- **Project directory:** `~/git/openstack-test-ansible`, a git repo from the start, laid
+  out as `ansible.cfg`, `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`, `site.yml`.
+
+**Stage 1 — Cluster inventory:**
+
+- A single YAML `inventory.yml`. YAML inventories require the top-level `all` group with
+  groups nested under `all: → children:` (unlike INI, which infers it).
+- Groups: `controller` (one host, `controller.lab.internal`) and `compute`
+  (`compute1/2/3.lab.internal`). Group names are singular and must match `group_vars/`
+  filenames exactly.
+- Host range syntax is **colon**-delimited: `compute[1:3].lab.internal` (not `[1-3]`,
+  which is treated as a literal hostname).
+- Variable placement: `host_vars/` for per-host values (so far just `local_ip` — each
+  compute node's own `.131`/`.132`/`.133` VXLAN tunnel endpoint, which a range cannot
+  express); `group_vars/all.yml` for non-secret cluster facts (controller hostname,
+  Keystone auth URL, OpenStack release, RabbitMQ/memcached hosts). Service passwords are
+  deferred to an `ansible-vault` file in Stage 4 — not placed in plaintext `group_vars`.
+
+**Problems hit and fixes:**
+
+1. **`uv` kept installing `ansible` 8.7.0.** Not a bug — its resolver walked back to the
+   newest release whose `ansible-core` the interpreter could satisfy; AlmaLinux's system
+   Python 3.9 was the hidden cap. Fix: pin Python 3.12 (`uv tool install ansible
+   --python 3.12`); `'ansible>=11'` turns the silent fallback into a loud resolver error.
+2. **`uv tool install ansible` only exposed `ansible-community`.** `uv tool` links the
+   requested package's own entry points; the real `ansible`/`ansible-playbook` commands
+   belong to the `ansible-core` dependency and had to be exposed explicitly.
+3. **Two Ansibles on the box** (the `uv` one + the leftover distro `ansible-core`) —
+   `ansible` could resolve to either by `PATH` order; `which -a ansible` is the diagnostic.
+4. **`ansible-inventory` rejected the YAML inventory — two causes:** (a) after moving the
+   project into the git-repo folder, `ansible.cfg`'s `inventory` path no longer resolved
+   (re-check with `ansible --version` / `ansible-config dump` after any move); (b) the
+   host range was written with a hyphen `[1-3]` instead of the colon `[1:3]`.
+5. **A bare `ansible … -m command -a hostname` prompted for a BECOME password.** Not a
+   misconfiguration — `become` was correctly off, but `become_ask_pass = True` makes
+   Ansible pre-collect a become password at the start of *every* run. Fix/decision:
+   removed `become_ask_pass` from `ansible.cfg` and pass `-K` per invocation, so the
+   prompt appears only for runs that actually escalate.
+
+**Verification (all passing at handoff):** `ansible --version` (core 2.20 / community 13.7
+/ Python 3.12), `which -a ansible` (resolves into the `uv` tool dir),
+`ansible-config dump --only-changed` (confirms cfg; `become` not set),
+`ansible-inventory --graph` (`all` → `controller` 1 host, `compute` 3 hosts),
+`ansible-inventory --host compute2.lab.internal` (`local_ip = 192.168.1.132`),
+`ansible all -m ping` (pong from all four).
+
+_Stages 2–5 to be filled in as later chunks execute them._
 
 ---
 
@@ -200,3 +276,4 @@ the playbooks.
 | 2026-05-23 | Reworked to a learning-oriented, staged method (find-and-modify templates, not copy-paste): added Stages 0–5, a throwaway `common` role to learn `template`/idempotence first, and `ansible-core` + `openstack.cloud`-only-for-bootstrap. **Changed the approach for controller-side Nova/Neutron to MANUAL one-time work** (no `nova_controller`/`neutron_controller` roles); only `nova_compute`/`neutron_compute` (plus the learning `common` role) are roles. |
 | 2026-06-06 | Moved the general learning-approach rationale to [project-principles.md](project-principles.md), leaving a reference plus the Phase-2-specific application and the 2025.1 caveat. |
 | 2026-06-06 | Corrected the Phase 1 issue #5 references: the lesson is "ensure the `service` project exists + verify role grants," not "role-grant typos." |
+| 2026-05-24 | **Stages 0–1 executed and verified.** Status moved Planned → In progress. Recorded the Ansible-via-`uv` install (community 13.7 / core 2.20 / Python 3.12), the escalation model (login user, `become` default-off, password-protected sudo, `-K`), the inventory layout, and the five problems hit. Updated the Ansible-approach bullets (was "install `ansible-core` via dnf, passwordless sudo") and closed the "Ansible layout/inventory" open item (vault still deferred to Stage 4). |
