@@ -91,6 +91,24 @@ The limitations are part of the lesson rather than problems to engineer away. Th
 1G link will saturate during Ceph recovery and VXLAN adds encapsulation overhead on the
 same wire — that is something to *watch and learn from*, not to fix.
 
+## 13. Diagnose from observed state, not assumed state
+
+While working through an issue, **never assume the state of any configuration** — mistakes
+happen, and a wrong assumption sends the diagnosis down the wrong path. First give the user
+commands that *read the actual state* of the pertinent configs and services, then diagnose
+from what they show. (In this project: `ansible-config dump --only-changed` settled whether
+`become` was really on; `cat -A`/`python3 -c 'yaml.safe_load(...)'` found the real inventory
+parse fault; `ip -d link show type vxlan` confirms what is actually running.) This is the
+debugging companion to principle 10.
+
+A specific corollary on the user's pasted text: **if a command or its output looks like it
+is missing characters at the beginning or end, assume first that it is a copy-paste/
+transcription error and ask the user to re-check it before trying to fix anything.** A
+truncated paste looks exactly like a real bug but isn't — chasing it wastes effort and can
+"fix" something that was never broken. (The Phase 1 Glance 401 was first blamed on an
+`admi` typo that turned out to be a copy-paste slip; the real cause was the missing
+`service` project — exactly the failure mode this guards against.)
+
 ---
 
 ## Changelog
@@ -99,3 +117,4 @@ same wire — that is something to *watch and learn from*, not to fix.
 |---|---|
 | 2026-06-06 | Initial principles document collated from chunks 01–06 (learning-first approach, phase-friction progression, find-and-modify learning, automate-the-repetition, disposable cluster, honest benchmarking, pragmatic lab trade-offs, home-network isolation, deliberate decision-logging, verify-don't-assume, consistency, constraints-as-observables). |
 | 2026-06-06 | Corrected the principle #10 example: the Glance 401 was caused by the missing `service` project, not an `admi` typo. |
+| 2026-06-07 | Added principle 13 (diagnose from observed state, not assumed state — including the copy-paste-error-first corollary for truncated commands/output). |
