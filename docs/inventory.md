@@ -112,10 +112,13 @@ these names, every node carries the full hostname→IP map in `/etc/hosts`.
 
 These host addresses are the **underlay**. From Phase 2 on, VM tenant traffic runs on
 a **VXLAN overlay** over this same single 1G link (so Ceph replication, OpenStack
-management, and VXLAN tunnel traffic all share the wire). VMs get private tenant IPs
-(e.g. `10.0.0.0/24`); external reachability is via a Neutron router and **floating IPs**
-carved from `192.168.1.0/24` (outside the home DHCP range and `.130–.133`). The
-controller is the network node. See [project-phase-2.md](project-phase-2.md).
+management, and VXLAN tunnel traffic all share the wire). Each node's host address is
+also its **VXLAN tunnel endpoint (VTEP)** address — the Ansible per-host `local_ip` —
+including the controller, which is a VTEP because it runs the L3/DHCP agents. VMs get
+private tenant IPs (e.g. `10.0.0.0/24`); external reachability is via a Neutron router
+and **floating IPs** carved from `192.168.1.0/24` (outside the home DHCP range and
+`.130–.133`). The controller is the network node. See
+[project-phase-2.md](project-phase-2.md).
 
 ---
 

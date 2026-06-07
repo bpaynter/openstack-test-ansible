@@ -117,12 +117,13 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 1. **Stage 1 — Inventory + prove connectivity** ✅ *complete* — YAML inventory (groups +
    per-host `local_ip`), verified with `ansible-inventory --graph` and `ansible all -m
    ping`. ("A playbook is just ad-hoc commands made repeatable.")
-2. **Stage 2 — A throwaway `common` role to learn the mechanics** — `ansible-galaxy role
-   init common`, then a low-stakes, genuinely useful task: render `/etc/hosts` identically
-   on all four nodes via the `template` module (`templates/hosts.j2` → `/etc/hosts`).
-   Run it twice; the second run must report `ok` not `changed`. This teaches the role
-   skeleton (`tasks`/`templates`/`defaults`/`vars`/`handlers`/`meta`), the single most
-   important module (`template`), and idempotence — before touching Nova.
+2. **Stage 2 — A throwaway `common` role to learn the mechanics** 🔨 *in progress* —
+   `ansible-galaxy role init common`, then a low-stakes, genuinely useful task: render
+   `/etc/hosts` identically on all four nodes via the `template` module
+   (`templates/hosts.j2` → `/etc/hosts`). Run it twice; the second run must report `ok`
+   not `changed`. This teaches the role skeleton
+   (`tasks`/`templates`/`defaults`/`vars`/`handlers`/`meta`), the single most important
+   module (`template`), and idempotence — before touching Nova.
 3. **Stage 3 — Controller-side Nova & Neutron (MANUAL, one-time)** — *not* a role, because
    the Ansible seam is repetition and this isn't repeated. Done by hand following the
    2025.1 guide, reusing the Phase 1 service-account pattern (ensure the `service`
@@ -137,7 +138,7 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
      (`service_plugins = router`), `ml2_conf.ini` (`type_drivers` incl. `flat`+`vxlan`,
      `tenant_network_types = vxlan`, `mechanism_drivers = linuxbridge`, `vni_ranges`),
      `linuxbridge_agent.ini` (`enable_vxlan = true`, `local_ip = 192.168.1.130` on the
-     controller), and the l3/dhcp/metadata agent configs. **Keep these hand-written
+     controller, `l2_population = true`), and the l3/dhcp/metadata agent configs. **Keep these hand-written
      `.conf` files** — the compute-side configs are nearly identical, which sets up
      Stage 4.
 4. **Stage 4 — `nova_compute` and `neutron_compute` roles (the loop on compute1/2/3)** —
@@ -231,10 +232,14 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 - Host range syntax is **colon**-delimited: `compute[1:3].lab.internal` (not `[1-3]`,
   which is treated as a literal hostname).
 - Variable placement: `host_vars/` for per-host values (so far just `local_ip` — each
-  compute node's own `.131`/`.132`/`.133` VXLAN tunnel endpoint, which a range cannot
+  node's own underlay IP / VXLAN tunnel-endpoint address, a value a range cannot
   express); `group_vars/all.yml` for non-secret cluster facts (controller hostname,
   Keystone auth URL, OpenStack release, RabbitMQ/memcached hosts). Service passwords are
   deferred to an `ansible-vault` file in Stage 4 — not placed in plaintext `group_vars`.
+  Note: `local_ip` is defined on **all four** hosts (controller `.130` plus computes
+  `.131`/`.132`/`.133`), not the three computes only — the controller is also a VTEP
+  (it runs the L3/DHCP agents, which sit on tenant networks). See decision in the Stage 2
+  log below.
 
 **Problems hit and fixes:**
 
@@ -264,7 +269,46 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
 `ansible-inventory --host compute2.lab.internal` (`local_ip = 192.168.1.132`),
 `ansible all -m ping` (pong from all four).
 
-_Stages 2–5 to be filled in as later chunks execute them._
+### Stage 2 — throwaway `common` role for `/etc/hosts` (in progress, from 2026-05-24)
+
+A low-stakes role to learn role structure before Nova/Neutron: render an identical,
+inventory-driven `/etc/hosts` to all four nodes.
+
+- **Skeleton:** `ansible-galaxy role init --init-path roles common` → `roles/common/`
+  with `tasks/`, `templates/`, `files/`, `handlers/`, `defaults/`, `vars/`, `meta/`,
+  `tests/`. `tasks/main.yml` is the entry point; `templates/` holds Jinja2 (`.j2`) files
+  the `template` module finds by relative path; `files/` is for static `copy` content;
+  `defaults/` is lowest-precedence vars, `vars/` highest.
+- **Template** `templates/hosts.j2`: the loopback lines plus
+  `{% for host in groups['all'] | sort %}` emitting
+  `{{ hostvars[host].local_ip }}  {{ host }}  {{ host.split('.')[0] }}` (FQDN + short
+  alias). Headed with `{{ ansible_managed }}`. Ansible's `template` module enables
+  `trim_blocks`/`lstrip_blocks` by default, so the loop renders without blank-line
+  artifacts.
+- **Task** `tasks/main.yml`: `ansible.builtin.template` (FQCN best practice) with
+  `src: hosts.j2`, `dest: /etc/hosts`, `owner/group: root`, `mode: '0644'` (quoted to
+  avoid the octal YAML gotcha), and `become: true` (per-task escalation; `-K` collects
+  the sudo password once).
+- **`local_ip` vs `underlay_ip` decision (Option A):** reuse the existing per-host
+  `local_ip` for `/etc/hosts` rendering rather than introduce a separate `underlay_ip`.
+  On this single-NIC cluster the underlay IP and the VXLAN tunnel endpoint are always the
+  same value, so a second variable isn't worth the redundancy. (Discovered that
+  `local_ip` was already defined on all four hosts, including the controller — which is
+  fine, since the controller is also a VTEP.)
+- **Still pending for Stage 2:** the `handlers`/`notify` pattern, wiring the role into
+  `site.yml`, and proving idempotence (run twice → `ok` not `changed`).
+
+**VXLAN/VTEP reference (clarified here, used in Stage 4):** a VTEP is the host IP that
+sends/receives VXLAN-encapsulated UDP (port **4789**); each node's `local_ip` *is* its
+VTEP address once Stage 4 templates the linuxbridge config. The `neutron_compute` (and
+controller) ml2/linuxbridge config will set `enable_vxlan = true`, `local_ip`, and
+typically `l2_population = true` (proactive forwarding from Neutron's DB rather than
+multicast, which home underlays carry poorly), with controller-side
+`type_drivers = flat,vxlan`, `tenant_network_types = vxlan`, and a `vni_ranges` pool
+(e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
+`ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
+
+_Stages 3–5 to be filled in as later chunks execute them._
 
 ---
 
@@ -277,3 +321,4 @@ _Stages 2–5 to be filled in as later chunks execute them._
 | 2026-06-06 | Moved the general learning-approach rationale to [project-principles.md](project-principles.md), leaving a reference plus the Phase-2-specific application and the 2025.1 caveat. |
 | 2026-06-06 | Corrected the Phase 1 issue #5 references: the lesson is "ensure the `service` project exists + verify role grants," not "role-grant typos." |
 | 2026-05-24 | **Stages 0–1 executed and verified.** Status moved Planned → In progress. Recorded the Ansible-via-`uv` install (community 13.7 / core 2.20 / Python 3.12), the escalation model (login user, `become` default-off, password-protected sudo, `-K`), the inventory layout, and the five problems hit. Updated the Ansible-approach bullets (was "install `ansible-core` via dnf, passwordless sudo") and closed the "Ansible layout/inventory" open item (vault still deferred to Stage 4). |
+| 2026-06-04 | **Stage 2 in progress** (`common` role rendering `/etc/hosts`). Corrected the Stage 1 `local_ip` record: it is defined on **all four** hosts (controller `.130` included — the controller is also a VTEP), not the three computes only. Recorded the Option-A decision to reuse `local_ip` for `/etc/hosts` (no separate `underlay_ip`), the role skeleton/template/task, and added `l2_population = true` to the linuxbridge config notes. |

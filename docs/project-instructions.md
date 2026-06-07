@@ -39,8 +39,8 @@ rebuild — is still planned**, not dropped).
 - **Phase 2 (compute nodes via hand-rolled Ansible)** — **active.** Design is done
   (VXLAN self-service networking, the staged Ansible approach). **Stages 0–1 (Ansible
   control node + cluster inventory) are complete and verified; Stage 2 (the throwaway
-  `common` role) is next.** Open items are tracked in [project-plan.md](project-plan.md)
-  and [project-phase-2.md](project-phase-2.md).
+  `common` role rendering `/etc/hosts`) is in progress.** Open items are tracked in
+  [project-plan.md](project-plan.md) and [project-phase-2.md](project-phase-2.md).
 - **Phase 3 (full teardown + rebuild with Kolla-Ansible)** — planned, later.
 
 ## How to help
@@ -72,3 +72,4 @@ rebuild — is still planned**, not dropped).
 |---|---|
 | 2026-06-06 | Created from the chunk-07 standardization attempt, adapted to this repo's doc set, the 0–3 phase structure (Phase 3 retained), and the corrected Phase 1 issue #5 root cause. |
 | 2026-05-24 | Updated status (Phase 2 Stages 0–1 complete, Stage 2 next) and added Ansible (uv community 13 / core 2.20, docs v13) to the established stack. |
+| 2026-06-04 | Updated status: Stage 2 (the `common` role) in progress. |

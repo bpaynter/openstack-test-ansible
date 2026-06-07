@@ -74,8 +74,8 @@ Details and execution log in [project-phase-1.md](project-phase-1.md).
 Adding nova-compute + Neutron agents to the 7060, 5090, and 7050 is the *same steps
 three times* — the natural seam to introduce Ansible. No teardown; the controller
 keeps its Phase 1 services. Done in stages 0–5; **Stages 0–1 (Ansible control node +
-inventory) are complete.** Details and step plan in
-[project-phase-2.md](project-phase-2.md).
+inventory) are complete and Stage 2 (a throwaway `common` role) is in progress.**
+Details and step plan in [project-phase-2.md](project-phase-2.md).
 
 - Controller-side Nova/Neutron is done **manually** (one-time, not repeated); the
   repetitive compute-node work becomes idempotent Ansible roles (`nova_compute`,
@@ -144,3 +144,4 @@ The remaining phases are Phase 2 (compute nodes via hand-rolled Ansible) and Pha
 | 2026-05-23 | Phase 2 designed: added VXLAN self-service networking and the network-node role to the Phase 2 description; added Phase 2 implementation open items (tenant CIDR, floating-IP pool, MTU, Nova disk backend, kvm/qemu). Phases 0–3 left unchanged (a momentary "Kolla dropped" framing in the source chat was a confusion — Phase 3 remains planned). |
 | 2026-05-23 | Refined the Phase 2 method to learning-first/manual-controller-side: controller Nova/Neutron done by hand, only the compute work as Ansible roles. |
 | 2026-05-24 | Marked Phase 2 in progress — Stages 0–1 (Ansible control node + inventory) complete. |
+| 2026-06-04 | Stage 2 (throwaway `common` role) in progress. |
