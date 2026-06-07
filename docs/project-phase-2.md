@@ -77,6 +77,8 @@ constant versus what varies per host.
 Run Ansible from the **controller** as the control node (it already has SSH reach and
 `admin-openrc`, and sits inside `lab.internal` so name resolution already works).
 Ansible installs nothing on managed nodes — it pushes Python over SSH and runs modules.
+The Ansible project lives in the repo's **`ansible/`** directory; the file paths in this
+section and the steps below are relative to it.
 
 - Install Ansible via **`uv`** (`uv tool install ansible --python 3.12`) — the full
   community package (community **13.7** / `ansible-core` **2.20**), which bundles
@@ -88,7 +90,7 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
   `sudo` **password-protected** (a deliberate security choice — *not* passwordless);
   escalate with `-K` / `--ask-become-pass` at run time (see the escalation model in
   [decisions.md](decisions.md)).
-- **`ansible.cfg`** (project-local, in the git repo) keeps a short, deliberate set of
+- **`ansible.cfg`** (project-local, in `ansible/`) keeps a short, deliberate set of
   settings: the `inventory` path, `stdout_callback = yaml` and
   `callbacks_enabled = profile_tasks` (legible, educational output),
   `interpreter_python = auto_silent`. `become` is left **default-off** so escalation is
@@ -219,8 +221,11 @@ Ansible installs nothing on managed nodes — it pushes Python over SSH and runs
   set; `become_ask_pass` was tried then removed — see problem 5. `remote_user` is not
   set: the same account is used locally and remotely, so Ansible's default of connecting
   as the current user is correct.)
-- **Project directory:** `~/git/openstack-test-ansible`, a git repo from the start, laid
-  out as `ansible.cfg`, `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`, `site.yml`.
+- **Project directory:** the Ansible project lives in the repo's **`ansible/`** directory
+  (`~/git/openstack-test-ansible/ansible/` on the controller), laid out as `ansible.cfg`,
+  `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`, `site.yml`. The repo has been
+  version-controlled from the start; the Ansible file paths in this doc are relative to
+  `ansible/`.
 
 **Stage 1 — Cluster inventory:**
 
@@ -321,4 +326,5 @@ _Stages 3–5 to be filled in as later chunks execute them._
 | 2026-06-06 | Moved the general learning-approach rationale to [project-principles.md](project-principles.md), leaving a reference plus the Phase-2-specific application and the 2025.1 caveat. |
 | 2026-06-06 | Corrected the Phase 1 issue #5 references: the lesson is "ensure the `service` project exists + verify role grants," not "role-grant typos." |
 | 2026-05-24 | **Stages 0–1 executed and verified.** Status moved Planned → In progress. Recorded the Ansible-via-`uv` install (community 13.7 / core 2.20 / Python 3.12), the escalation model (login user, `become` default-off, password-protected sudo, `-K`), the inventory layout, and the five problems hit. Updated the Ansible-approach bullets (was "install `ansible-core` via dnf, passwordless sudo") and closed the "Ansible layout/inventory" open item (vault still deferred to Stage 4). |
+| 2026-06-07 | Updated the Ansible project location: the playbooks now live in the repo's `ansible/` directory (moved from the repo root); doc paths are relative to it. |
 | 2026-06-04 | **Stage 2 in progress** (`common` role rendering `/etc/hosts`). Corrected the Stage 1 `local_ip` record: it is defined on **all four** hosts (controller `.130` included — the controller is also a VTEP), not the three computes only. Recorded the Option-A decision to reuse `local_ip` for `/etc/hosts` (no separate `underlay_ip`), the role skeleton/template/task, and added `l2_population = true` to the linuxbridge config notes. |

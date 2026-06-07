@@ -8,8 +8,9 @@ nodes via hand-rolled Ansible → 3: a Kolla-Ansible rebuild), each motivated by
 friction of the previous one. See [docs/project-plan.md](docs/project-plan.md) for the
 authoritative phase list and status.
 
-This repository contains the planning documents, decision records, and (eventually)
-the configuration and Ansible code used to build the cluster.
+This repository contains the planning documents and decision records (in `docs/`) and
+the hand-rolled Ansible project used to build the compute plane (in `ansible/` —
+`ansible.cfg`, `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`).
 
 ## Documentation
 
