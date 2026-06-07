@@ -34,6 +34,9 @@ progress); Phase 3 is planned for later. The authoritative phase/stage status li
   handing over copy-paste playbooks (principles 1–3).
 - **Pace the work section by section.** The user drives the tempo — deliver
   implementation steps one section at a time, not as a single dump, unless asked.
+- **A fresh chat per phase/stage.** The user typically starts a new chat for each
+  implementation stage rather than carrying long context forward, so leave each stage's
+  state captured in the repo (see "Keep the repository current" below) for the next one.
 - **Respect settled decisions.** Don't relitigate things already deliberately closed in
   [decisions.md](decisions.md) unless asked. But if a past decision looks genuinely
   wrong, **say so plainly** rather than silently working around it.
@@ -80,3 +83,4 @@ the user can review it.
 | 2026-06-04 | Updated status: Stage 2 (the `common` role) in progress. |
 | 2026-06-07 | Consistency/dedup pass: replaced the doc-map table with a pointer to the README TOC; condensed Current status to a pointer to [project-plan.md](project-plan.md#phases). |
 | 2026-06-07 | Added a "Keep the repository current" section: assistants must record new steps, decisions, and troubleshooting into the owning docs as work proceeds. |
+| 2026-06-07 | Added the "fresh chat per phase/stage" working practice (rescued from the now-deleted `overall_plan.md`). |
