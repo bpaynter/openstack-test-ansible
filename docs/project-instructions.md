@@ -48,6 +48,27 @@ progress); Phase 3 is planned for later. The authoritative phase/stage status li
 - **Verify, don't assume** (principle 10): cross-check the official 2025.1/RDO/Ceph docs
   rather than generic instructions, and confirm actions took effect.
 
+## Keep the repository current
+
+The docs are the project's living memory — keep them reflecting the **current state of
+the project** as work proceeds, in the same session, not as an afterthought. Whenever you
+produce something that changes the project's state, update the owning file as well as
+telling the user:
+
+- **New plan / steps:** when you generate new steps for a phase or stage, give them to the
+  user **and** add them to the appropriate file (usually the relevant
+  `docs/project-phase-N.md`) so the plan in the repo stays complete.
+- **Decisions:** when a decision is made (or an option rejected), record it in
+  [decisions.md](decisions.md) with its reasoning.
+- **Problems & fixes:** when something is troubleshooted, record the problem and its fix in
+  that phase's execution log ("Actual work completed" / "Problems hit").
+- **Status & facts:** update phase/stage status, the hardware/address map, open items, and
+  any changed fact in its owning file, and note material changes in that file's changelog.
+
+Follow the repo's own conventions: each fact lives in **one** file and the others link to
+it (prefer a direct section link). When you change a doc, say briefly what you updated so
+the user can review it.
+
 ---
 
 ## Changelog
@@ -58,3 +79,4 @@ progress); Phase 3 is planned for later. The authoritative phase/stage status li
 | 2026-05-24 | Updated status (Phase 2 Stages 0–1 complete, Stage 2 next) and added Ansible (uv community 13 / core 2.20, docs v13) to the established stack. |
 | 2026-06-04 | Updated status: Stage 2 (the `common` role) in progress. |
 | 2026-06-07 | Consistency/dedup pass: replaced the doc-map table with a pointer to the README TOC; condensed Current status to a pointer to [project-plan.md](project-plan.md#phases). |
+| 2026-06-07 | Added a "Keep the repository current" section: assistants must record new steps, decisions, and troubleshooting into the owning docs as work proceeds. |
