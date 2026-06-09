@@ -17,6 +17,7 @@ the hand-rolled Ansible project used to build the compute plane (in `ansible/` â
 | Document | Description |
 |---|---|
 | [docs/project-instructions.md](docs/project-instructions.md) | How to help on this project â€” working guidance, the doc map, and current status. |
+| [docs/bootstrap-prompt.md](docs/bootstrap-prompt.md) | The standing prompt to paste at the start of a fresh chat (a portable summary; the linked docs are authoritative). |
 | [docs/project-principles.md](docs/project-principles.md) | The guiding principles behind the project (the *why* under the decisions). |
 | [docs/project-plan.md](docs/project-plan.md) | Project goals, rules/guidelines, and the major phases of the build plan. |
 | [docs/inventory.md](docs/inventory.md) | Hardware inventory (machines, CPUs, RAM, disks) and a hardware changelog. |
