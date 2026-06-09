@@ -8,10 +8,10 @@ repetition that hand-rolled Ansible exists to absorb. There is **no teardown**: 
 controller keeps its Phase 1 services and Phase 2 adds to it.
 
 > **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
-> staged Ansible approach). **Stages 0 and 1 (Ansible control node + cluster inventory)
-> are executed and verified** — see "Actual work completed" below. Stages 2–5 (roles
-> and the controller-side bring-up) are still ahead; the detailed VXLAN Neutron config
-> is produced in a later implementation chat.
+> staged Ansible approach). **Stages 0–2 (Ansible control node, cluster inventory, and
+> the throwaway `common` role) are executed and verified** — see "Actual work completed"
+> below. Stages 3–5 (the controller-side bring-up and the compute roles) are still
+> ahead; the detailed VXLAN Neutron config is produced in a later implementation chat.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -91,7 +91,7 @@ section and the steps below are relative to it.
   escalate with `-K` / `--ask-become-pass` at run time (see the escalation model in
   [decisions.md](decisions.md)).
 - **`ansible.cfg`** (project-local, in `ansible/`) keeps a short, deliberate set of
-  settings: the `inventory` path, `stdout_callback = yaml` and
+  settings: the `inventory` path, `result_format = yaml` and
   `callbacks_enabled = profile_tasks` (legible, educational output),
   `interpreter_python = auto_silent`. `become` is left **default-off** so escalation is
   per-play/per-task and a missing `become:` fails loudly rather than silently running as
@@ -119,7 +119,7 @@ section and the steps below are relative to it.
 1. **Stage 1 — Inventory + prove connectivity** ✅ *complete* — YAML inventory (groups +
    per-host `local_ip`), verified with `ansible-inventory --graph` and `ansible all -m
    ping`. ("A playbook is just ad-hoc commands made repeatable.")
-2. **Stage 2 — A throwaway `common` role to learn the mechanics** 🔨 *in progress* —
+2. **Stage 2 — A throwaway `common` role to learn the mechanics** ✅ *complete* —
    `ansible-galaxy role init common`, then a low-stakes, genuinely useful task: render
    `/etc/hosts` identically on all four nodes via the `template` module
    (`templates/hosts.j2` → `/etc/hosts`). Run it twice; the second run must report `ok`
@@ -216,11 +216,12 @@ section and the steps below are relative to it.
   `sudo ansible-playbook`. `sudo` is left **password-protected** (a deliberate security
   choice, not passwordless); escalation is per-play/per-task `become` with `-K` /
   `--ask-become-pass` at run time. `become` is default-**off** in `ansible.cfg`.
-- **`ansible.cfg`** (project-local): `inventory` path, `stdout_callback = yaml`,
+- **`ansible.cfg`** (project-local): `inventory` path, `result_format = yaml`,
   `callbacks_enabled = profile_tasks`, `interpreter_python = auto_silent`. (`become` not
   set; `become_ask_pass` was tried then removed — see problem 5. `remote_user` is not
   set: the same account is used locally and remotely, so Ansible's default of connecting
-  as the current user is correct.)
+  as the current user is correct. `result_format = yaml` replaced an earlier
+  `stdout_callback = yaml` — see the Stage 2 problem log.)
 - **Project directory:** the Ansible project lives in the repo's **`ansible/`** directory
   (`~/git/openstack-test-ansible/ansible/` on the controller), laid out as `ansible.cfg`,
   `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`, `site.yml`. The repo has been
@@ -274,7 +275,7 @@ section and the steps below are relative to it.
 `ansible-inventory --host compute2.lab.internal` (`local_ip = 192.168.1.132`),
 `ansible all -m ping` (pong from all four).
 
-### Stage 2 — throwaway `common` role for `/etc/hosts` (in progress, from 2026-05-24)
+### Stage 2 — throwaway `common` role for `/etc/hosts` (complete, verified 2026-06-08)
 
 A low-stakes role to learn role structure before Nova/Neutron: render an identical,
 inventory-driven `/etc/hosts` to all four nodes.
@@ -286,22 +287,63 @@ inventory-driven `/etc/hosts` to all four nodes.
   `defaults/` is lowest-precedence vars, `vars/` highest.
 - **Template** `templates/hosts.j2`: the loopback lines plus
   `{% for host in groups['all'] | sort %}` emitting
-  `{{ hostvars[host].local_ip }}  {{ host }}  {{ host.split('.')[0] }}` (FQDN + short
-  alias). Headed with `{{ ansible_managed }}`. Ansible's `template` module enables
-  `trim_blocks`/`lstrip_blocks` by default, so the loop renders without blank-line
-  artifacts.
+  `{{ hostvars[host].local_ip }}  {{ host }}  {{ host.split('.')[0] }}` (FQDN canonical,
+  short name as alias). Headed with `{{ ansible_managed }}`. Ansible's `template` module
+  enables `trim_blocks`/`lstrip_blocks` by default, so the loop renders without
+  blank-line artifacts. The `| sort` keeps the output byte-stable run-to-run, which is
+  what makes the idempotence check pass.
 - **Task** `tasks/main.yml`: `ansible.builtin.template` (FQCN best practice) with
   `src: hosts.j2`, `dest: /etc/hosts`, `owner/group: root`, `mode: '0644'` (quoted to
-  avoid the octal YAML gotcha), and `become: true` (per-task escalation; `-K` collects
+  avoid the octal YAML gotcha), `backup: true` (a timestamped backup the first time it
+  overwrites a live `/etc/hosts`), and `become: true` (per-task escalation; `-K` collects
   the sudo password once).
 - **`local_ip` vs `underlay_ip` decision (Option A):** reuse the existing per-host
   `local_ip` for `/etc/hosts` rendering rather than introduce a separate `underlay_ip`.
   On this single-NIC cluster the underlay IP and the VXLAN tunnel endpoint are always the
   same value, so a second variable isn't worth the redundancy. (Discovered that
   `local_ip` was already defined on all four hosts, including the controller — which is
-  fine, since the controller is also a VTEP.)
-- **Still pending for Stage 2:** the `handlers`/`notify` pattern, wiring the role into
-  `site.yml`, and proving idempotence (run twice → `ok` not `changed`).
+  fine, since the controller is also a VTEP.) Recorded as decision #29.
+- **`site.yml`:** a top-level play (`hosts: all`, `roles: [common]`), with **no
+  play-level `become`** — escalation stays per-task (decision #28). This is also the
+  project's first real playbook entry point.
+- **Applied and verified (2026-06-08):** previewed with `--check --diff -K`, applied with
+  `--diff -K`, then re-run to prove idempotence — the second run reported **all `ok`, no
+  diff** (the Stage 2 acceptance test). The `--check` diff also showed the render
+  correcting the live hand-written files, whose host columns were ordered
+  `IP  short  FQDN`; the template's FQDN-canonical order (`IP  FQDN  short`) matches the
+  form recorded in [project-phase-1.md](project-phase-1.md) and is the right canonical
+  order for a cluster whose services speak FQDNs. Loopback lines were already
+  localhost-only on every node (Phase 0 done correctly — no FQDN parked on `127.0.0.1`).
+- **No handler in `common`:** rendering `/etc/hosts` has no service to bounce, so forcing
+  a handler here would be busywork. The `notify` → validate-and-reload pattern was instead
+  exercised for real in the throwaway cephadm-fix playbook (see Problems below).
+
+**Problems hit and fixes (Stage 2):**
+
+1. **`community.general.yaml` stdout callback removed.** The first `ansible-playbook`
+   run failed: `ansible.cfg` set `stdout_callback = yaml`, but that callback lived in
+   `community.general`, and **12.0.0 removed it** (the full `ansible` 13.7 package bundles
+   community.general 12.x). Its job moved to an option on the built-in default callback.
+   Fix: replace `stdout_callback = yaml` with `result_format = yaml` (supported by
+   `ansible.builtin.default` since ansible-core 2.13). `callbacks_enabled = profile_tasks`
+   is a separate plugin and was unaffected. A small instance of the documented
+   version-skew caveat — config keys shift between versions, so match the v13 docs.
+2. **compute3 (7050) dropped off mid-stage, then broke cephadm's SSH.** The box went
+   unreachable (no ping, no Ansible SSH); since it carries 2 of the 5 OSDs *and* — as this
+   episode revealed — a MON, Ceph went `HEALTH_WARN` with degraded/undersized PGs. After
+   it returned, `ceph health detail` showed **cephadm SSH auth failures for `root`** ("3
+   hosts fail cephadm check"). Root cause: root's `authorized_keys` had been pruned earlier
+   on the assumption that Ansible's `become` model made root SSH unnecessary — true for
+   Ansible, but **cephadm is a separate management plane that SSHes to every host as
+   `root`** with its own cluster key. Fix: restored the cephadm public key
+   (`ceph cephadm get-pub-key`) to root's `authorized_keys` on all four nodes via a
+   throwaway Ansible playbook (`authorized_key` + an sshd `PermitRootLogin` drop-in,
+   reloaded through a validate-then-reload handler), **hardened** with
+   `PermitRootLogin prohibit-password` and a `from="192.168.1.128/29"` source restriction
+   scoped to the cluster nodes (so the key is only usable from a node that could run the
+   active mgr). Recorded as **decision #30**. The same `ceph -s` also revealed the cluster
+   runs **4 MONs**, not the single MON **decision #15** had recorded — cephadm's default
+   MON placement had spread them across the added hosts; #15 corrected accordingly.
 
 **VXLAN/VTEP reference (clarified here, used in Stage 4):** a VTEP is the host IP that
 sends/receives VXLAN-encapsulated UDP (port **4789**); each node's `local_ip` *is* its
@@ -328,3 +370,4 @@ _Stages 3–5 to be filled in as later chunks execute them._
 | 2026-05-24 | **Stages 0–1 executed and verified.** Status moved Planned → In progress. Recorded the Ansible-via-`uv` install (community 13.7 / core 2.20 / Python 3.12), the escalation model (login user, `become` default-off, password-protected sudo, `-K`), the inventory layout, and the five problems hit. Updated the Ansible-approach bullets (was "install `ansible-core` via dnf, passwordless sudo") and closed the "Ansible layout/inventory" open item (vault still deferred to Stage 4). |
 | 2026-06-07 | Updated the Ansible project location: the playbooks now live in the repo's `ansible/` directory (moved from the repo root); doc paths are relative to it. |
 | 2026-06-04 | **Stage 2 in progress** (`common` role rendering `/etc/hosts`). Corrected the Stage 1 `local_ip` record: it is defined on **all four** hosts (controller `.130` included — the controller is also a VTEP), not the three computes only. Recorded the Option-A decision to reuse `local_ip` for `/etc/hosts` (no separate `underlay_ip`), the role skeleton/template/task, and added `l2_population = true` to the linuxbridge config notes. |
+| 2026-06-08 | **Stage 2 complete and verified.** The `common` role renders an inventory-driven `/etc/hosts` to all four nodes (FQDN-canonical column order, `\| sort`ed for idempotence), wired into `site.yml`; idempotence proven (second run all `ok`, no diff). Corrected the earlier (2026-06-04) record that described the template/task as already written — they were actually authored and verified in this session. Fixed `ansible.cfg`: `stdout_callback = yaml` → `result_format = yaml` (the `community.general.yaml` callback was removed in community.general 12.x, bundled in community 13.7). Logged the compute3 outage + cephadm root-SSH episode (restored hardened root key; new decision #30) and the discovery that the cluster runs **4 MONs**, not 1 (decision #15 corrected). |
