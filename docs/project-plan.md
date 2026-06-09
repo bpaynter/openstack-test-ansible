@@ -25,7 +25,8 @@ The key operating constraints, at a glance. The full reasoning for each is in
   home network. (Address plan in [inventory.md](inventory.md).)
 - **Tenant networking: VXLAN self-service** (Linux bridge) — keeps VM DHCP off the home
   LAN without a managed switch.
-- **Single Ceph MON (accepted SPOF); `osd_memory_target` ~1.5–2 GB.**
+- **4 Ceph MONs** (cephadm auto-placed one per host; not the single MON originally
+  planned — see [decisions.md](decisions.md) #15); **`osd_memory_target` ~1.5–2 GB.**
 - **Learning prioritized over speed** — built by hand, then rebuilt (see phases).
 
 ## Phases
@@ -51,8 +52,8 @@ controller. Full steps, config notes, and execution log in
 
 Add Nova + Neutron to the existing cluster with hand-rolled Ansible (no teardown) —
 controller-side bring-up by hand, the repetitive compute work as idempotent roles, and
-**VXLAN self-service** tenant networking. Done in stages 0–5; **Stages 0–1 complete,
-Stage 2 in progress.** Full design, step plan, and execution log in
+**VXLAN self-service** tenant networking. Done in stages 0–5; **Stages 0–2 complete,
+Stage 3 next.** Full design, step plan, and execution log in
 [project-phase-2.md](project-phase-2.md).
 
 ### Phase 3 — Full teardown and rebuild with Kolla-Ansible
@@ -91,3 +92,4 @@ pool, VXLAN MTU, Nova disk backend, `kvm`/`qemu`), tracked in
 | 2026-05-24 | Marked Phase 2 in progress — Stages 0–1 (Ansible control node + inventory) complete. |
 | 2026-06-04 | Stage 2 (throwaway `common` role) in progress. |
 | 2026-06-07 | Consistency/dedup pass: trimmed Parameters and the Phase 1/2 descriptions to brief summaries; replaced the "settled" recap and the Phase 2 open-items list with pointers to [decisions.md](decisions.md) and [project-phase-2.md](project-phase-2.md); fixed the stale "provider-on-its-own-VLAN" tenant-networking item to the VXLAN model. |
+| 2026-06-08 | Marked Phase 2 **Stages 0–2 complete** (the throwaway `common` role is done and idempotent); **Stage 3** (manual controller-side Nova/Neutron) is next. Corrected the Parameters MON count to **4** (cephadm default placement; see [decisions.md](decisions.md) #15), superseding the single-MON note. |
