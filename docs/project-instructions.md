@@ -23,8 +23,8 @@ planned**, not dropped).
 
 ## Current status
 
-Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–1 done, Stage 2 in
-progress); Phase 3 is planned for later. The authoritative phase/stage status lives in
+Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–2 done, Stage 3 next);
+Phase 3 is planned for later. The authoritative phase/stage status lives in
 [project-plan.md](project-plan.md#phases).
 
 ## How to help
@@ -84,3 +84,4 @@ the user can review it.
 | 2026-06-07 | Consistency/dedup pass: replaced the doc-map table with a pointer to the README TOC; condensed Current status to a pointer to [project-plan.md](project-plan.md#phases). |
 | 2026-06-07 | Added a "Keep the repository current" section: assistants must record new steps, decisions, and troubleshooting into the owning docs as work proceeds. |
 | 2026-06-07 | Added the "fresh chat per phase/stage" working practice (rescued from the now-deleted `overall_plan.md`). |
+| 2026-06-08 | Updated status: Phase 2 Stages 0–2 complete (the `common` role is done and idempotent), Stage 3 next. |
