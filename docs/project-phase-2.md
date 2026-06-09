@@ -10,8 +10,9 @@ controller keeps its Phase 1 services and Phase 2 adds to it.
 > **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
 > staged Ansible approach). **Stages 0–2 (Ansible control node, cluster inventory, and
 > the throwaway `common` role) are executed and verified** — see "Actual work completed"
-> below. Stages 3–5 (the controller-side bring-up and the compute roles) are still
-> ahead; the detailed VXLAN Neutron config is produced in a later implementation chat.
+> below. Stages 3–6 (the controller-side bring-up, the compute roles, and Cinder block
+> storage) are still ahead; the detailed VXLAN Neutron config is produced in a later
+> implementation chat.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -150,7 +151,10 @@ section and the steps below are relative to it.
    passwords → `group_vars` refs; genuinely-identical lines stay literal). `tasks/main.yml`
    is then short: `dnf` install → `template` render → `service` start, with restarts via
    handlers. Per-node specifics: `[vnc] server_proxyclient_address` = that node's own IP;
-   `[libvirt] virt_type = kvm` (VT-x i7s — fail loudly if `vmx` absent); **NIC names may
+   `[libvirt] virt_type = kvm` (VT-x i7s — fail loudly if `vmx` absent) and
+   **`[libvirt] images_type = rbd`** backed by the `vms` pool with a per-node libvirt
+   secret holding the `client.nova` key (decision #31 — RBD-backed ephemeral; reuses the
+   Phase 1 `/etc/ceph` permissions lesson); **NIC names may
    differ per node** so keep `physical_interface_mappings`/`local_ip` per-host. After the
    role runs, `nova-manage cell_v2 discover_hosts` **once** on the controller (a
    `command` task with `run_once: true` — teaches that not every task runs on every host);
@@ -163,13 +167,29 @@ section and the steps below are relative to it.
    (**set tenant MTU 1450**); a Neutron router (provider net as external gateway, tenant
    subnet as internal interface). Then a small flavor, a keypair, an SSH/ICMP security
    group, and `openstack server create` for a CirrOS instance; assign a floating IP and
-   SSH in from the home LAN. When that works, Phase 2 is done.
+   SSH in from the home LAN. When that works, the core compute plane is up — Stage 6
+   adds persistent block storage.
+6. **Stage 6 — Cinder (block storage), RBD-backed** — add persistent volumes once a VM
+   boots. Controller-side and largely a repeat of the Phase 1 Glance pattern, so done
+   **by hand** (not a role): create the `volumes` Ceph pool + `client.cinder` auth/keyring;
+   the `cinder` DB; the service account (ensure the `service` project exists → user create
+   → `role add --project service` → **verify with `role assignment list`** — the Phase 1
+   issue #5 lesson); install `cinder-api`/`cinder-scheduler`/`cinder-volume` on the
+   controller; configure `cinder.conf` with an `[rbd]` backend (`rbd_pool = volumes`,
+   `rbd_user = cinder`, `rbd_ceph_conf`, and `rbd_secret_uuid` = the libvirt secret) and
+   register the **block-storage v3** endpoints. The compute side needs only the libvirt
+   Ceph secret already placed in Stage 4 (decision #31). Test: `openstack volume create`,
+   confirm the UUID in `rbd -p volumes ls`, then `openstack server add volume` to attach
+   it to the Stage 5 instance and verify the block device appears inside the guest. When
+   that works, **Phase 2 is done.** (Cinder is optional on a throwaway cluster — included
+   here for block-storage learning and volume-I/O benchmarking; see [decisions.md](decisions.md) #32.)
 
-> **Nova ephemeral disk backend (still open):** local qcow2 on each node's boot disk
-> (simplest) vs. **Ceph RBD-backed** ephemeral (a `vms` pool, `client.nova` auth, a
-> libvirt secret per compute node, `[libvirt] images_type = rbd`). RBD-backed enables
-> live migration and makes Ceph recovery visibly affect running VMs — and reuses the
-> Phase 1 keyring-permissions lesson. Decide before Stage 4's libvirt config.
+> **Nova ephemeral disk backend — decided: Ceph RBD-backed** (decision #31): a `vms`
+> pool, `client.nova` auth, a per-compute libvirt secret, `[libvirt] images_type = rbd`.
+> Chosen over local qcow2 because it enables live migration, makes Ceph recovery visibly
+> affect running VMs (a benchmark observable), reuses the Phase 1 keyring-permissions
+> lesson, and shares the libvirt Ceph secret that Stage 6 Cinder also needs. Configured
+> in Stage 4's libvirt step.
 
 ## Open items for Phase 2 implementation
 
@@ -177,7 +197,6 @@ section and the steps below are relative to it.
 - **Floating-IP allocation pool** carved from `192.168.1.0/24`, confirmed against the
   home router's actual DHCP range and the static host IPs.
 - **MTU handling** for VXLAN (raise underlay MTU vs. tenant network MTU 1450).
-- **Nova ephemeral disk backend** — local qcow2 vs. Ceph RBD `vms` pool.
 - **`kvm` vs `qemu`** — `kvm` expected (VT-x i7s), but BIOS virtualization must be
   confirmed enabled on each node.
 - **`ansible-vault` secret handling** — deferred to Stage 4 (the Ansible project layout
@@ -189,8 +208,9 @@ section and the steps below are relative to it.
   `role add --project service` silently no-ops if the `service` project doesn't exist,
   which surfaces only as a later 401. Ensure the `service` project exists, and add an
   explicit `role assignment list` verification after each grant.
-- **Ceph file permissions (issue #3)** — if Nova goes RBD-backed, the `nova`/`qemu` user
-  must read `/etc/ceph/` files: `chown root:<group>` + `chmod 640` + `restorecon`.
+- **Ceph file permissions (issue #3)** — Nova is now RBD-backed (#31) and Cinder (Stage 6)
+  is too, so the `nova`/`qemu`/`cinder` users must read `/etc/ceph/` files:
+  `chown root:<group>` + `chmod 640` + `restorecon`.
 - **Per-node device/NIC names (issue #2)** — NIC names differ across these OptiPlex
   models just as disk letters did; **never hardcode the interface** in
   `physical_interface_mappings` or `local_ip` — make them per-host inventory variables.
@@ -355,7 +375,7 @@ multicast, which home underlays carry poorly), with controller-side
 (e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
 `ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
 
-_Stages 3–5 to be filled in as later chunks execute them._
+_Stages 3–6 to be filled in as later chunks execute them._
 
 ---
 
@@ -371,3 +391,4 @@ _Stages 3–5 to be filled in as later chunks execute them._
 | 2026-06-07 | Updated the Ansible project location: the playbooks now live in the repo's `ansible/` directory (moved from the repo root); doc paths are relative to it. |
 | 2026-06-04 | **Stage 2 in progress** (`common` role rendering `/etc/hosts`). Corrected the Stage 1 `local_ip` record: it is defined on **all four** hosts (controller `.130` included — the controller is also a VTEP), not the three computes only. Recorded the Option-A decision to reuse `local_ip` for `/etc/hosts` (no separate `underlay_ip`), the role skeleton/template/task, and added `l2_population = true` to the linuxbridge config notes. |
 | 2026-06-08 | **Stage 2 complete and verified.** The `common` role renders an inventory-driven `/etc/hosts` to all four nodes (FQDN-canonical column order, `\| sort`ed for idempotence), wired into `site.yml`; idempotence proven (second run all `ok`, no diff). Corrected the earlier (2026-06-04) record that described the template/task as already written — they were actually authored and verified in this session. Fixed `ansible.cfg`: `stdout_callback = yaml` → `result_format = yaml` (the `community.general.yaml` callback was removed in community.general 12.x, bundled in community 13.7). Logged the compute3 outage + cephadm root-SSH episode (restored hardened root key; new decision #30) and the discovery that the cluster runs **4 MONs**, not 1 (decision #15 corrected). |
+| 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
