@@ -1,3 +1,10 @@
-#SPDX-License-Identifier: MIT-0
 ---
-# tasks file for common
+- name: Render /etc/hosts from inventory
+  ansible.builtin.template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  become: true

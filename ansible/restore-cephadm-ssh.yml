@@ -1,0 +1,35 @@
+---
+- name: Restore hardened root SSH access for cephadm
+  hosts: all
+  tasks:
+    - name: Fetch the cephadm cluster public key from the controller
+      ansible.builtin.command: ceph cephadm get-pub-key
+      register: cephadm_pubkey
+      delegate_to: controller.lab.internal
+      run_once: true
+      changed_when: false
+      check_mode: false
+      become: true
+
+    - name: Authorize that key for root, locked to the controller's IP
+      ansible.builtin.authorized_key:
+        user: root
+        key: "{{ cephadm_pubkey.stdout }}"
+        key_options: 'from="192.168.1.128/29"'
+        state: present
+      become: true
+
+    - name: Restrict root login to key-only (no password)
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-root-login.conf
+        content: "PermitRootLogin prohibit-password\n"
+        owner: root
+        group: root
+        mode: '0600'
+      become: true
+      notify: Validate and reload sshd
+
+  handlers:
+    - name: Validate and reload sshd
+      ansible.builtin.shell: /usr/sbin/sshd -t && systemctl reload sshd
+      become: true

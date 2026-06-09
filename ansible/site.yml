@@ -1,0 +1,5 @@
+---
+- name: Common base configuration for all nodes
+  hosts: all
+  roles:
+    - common
