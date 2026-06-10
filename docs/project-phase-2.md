@@ -375,7 +375,45 @@ multicast, which home underlays carry poorly), with controller-side
 (e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
 `ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
 
-_Stages 3–6 to be filled in as later chunks execute them._
+### Stage 3 — controller-side Nova & Neutron (in progress)
+
+Controller-side prerequisites are underway (Nova `nova`/`nova_api`/`nova_cell0` DBs and
+the `nova` service account; Keystone catalog/`auth_url` FQDN cleanup). Full Stage 3
+detail will be recorded as the section lands; logged so far is one troubleshooting
+episode.
+
+**Problems hit and fixes (Stage 3):**
+
+1. **glance-api failed to start — real cause was a mislabeled `/etc/ceph/ceph.conf`, not
+   the config edit that preceded it.** While standardizing the Keystone catalog and the
+   `glance-api.conf` `[keystone_authtoken]` `auth_url`/`www_authenticate_uri` onto the
+   FQDN (`controller` → `controller.lab.internal`), the next `openstack-glance-api`
+   restart died with `ERROR: [errno 2] RADOS object not found (error calling
+   conf_read_file)`. The message looks auth-related but is the **RBD store** failing to
+   read its Ceph config — and the edit was a red herring: the `auth_url` change was
+   correct, and the `[ceph]` store section (`rbd_store_ceph_conf = /etc/ceph/ceph.conf`)
+   was intact. The restart was simply the first glance-api start since
+   `/etc/ceph/ceph.conf` was last rewritten (Jun 6), and that file carried the wrong
+   SELinux label — `unconfined_u:object_r:user_tmp_t:s0` (the type a file picks up when
+   created in a user/temp context and moved into place). glance-api runs **confined** as
+   `glance_api_t`, which is not allowed to read `user_tmp_t`; a `sudo -u glance cat` test
+   "passed" only because it ran **unconfined**, making it a false negative. The original
+   read denial never appeared in `ausearch` (almost certainly `dontaudit`-suppressed),
+   which is why the first check looked empty even though the label was the cause.
+   **Fix:** `sudo restorecon -Rv /etc/ceph/` relabeled `ceph.conf` to its policy-correct
+   type; glance-api then started and `openstack image list` worked. Same class as
+   **Phase 1 issue #3** (Ceph access for service users) — but SELinux *labels*, not just
+   owner/mode. **Lesson:** when a Ceph-backed service fails on `conf_read_file`, check
+   `ls -lZ /etc/ceph` first, and test readability from the *confined service domain*, not
+   an unconfined `sudo -u` shell.
+   - **Benign residual denial (left as-is):** after the fix, `ausearch` shows one
+     `glance_api_t` → `mysqld_exec_t` `getattr` denial on `/usr/bin/mariadbd-safe-helper`
+     during DB init. glance is fully functional (image list works ⇒ DB access is fine), so
+     this stat is off the needed path — likely the MariaDB client library probing for
+     local-server artifacts. Left unaddressed on this throwaway cluster (no `permissive`,
+     no blind `audit2allow`).
+
+_Stages 4–6 to be filled in as later chunks execute them._
 
 ---
 
@@ -392,3 +430,4 @@ _Stages 3–6 to be filled in as later chunks execute them._
 | 2026-06-04 | **Stage 2 in progress** (`common` role rendering `/etc/hosts`). Corrected the Stage 1 `local_ip` record: it is defined on **all four** hosts (controller `.130` included — the controller is also a VTEP), not the three computes only. Recorded the Option-A decision to reuse `local_ip` for `/etc/hosts` (no separate `underlay_ip`), the role skeleton/template/task, and added `l2_population = true` to the linuxbridge config notes. |
 | 2026-06-08 | **Stage 2 complete and verified.** The `common` role renders an inventory-driven `/etc/hosts` to all four nodes (FQDN-canonical column order, `\| sort`ed for idempotence), wired into `site.yml`; idempotence proven (second run all `ok`, no diff). Corrected the earlier (2026-06-04) record that described the template/task as already written — they were actually authored and verified in this session. Fixed `ansible.cfg`: `stdout_callback = yaml` → `result_format = yaml` (the `community.general.yaml` callback was removed in community.general 12.x, bundled in community 13.7). Logged the compute3 outage + cephadm root-SSH episode (restored hardened root key; new decision #30) and the discovery that the cluster runs **4 MONs**, not 1 (decision #15 corrected). |
 | 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
+| 2026-06-09 | **Stage 3 started** (controller-side Nova/Neutron prerequisites underway). Logged a troubleshooting episode: while standardizing the catalog/`auth_url` onto FQDNs, `openstack-glance-api` failed to restart with a `conf_read_file` RADOS error whose real cause was a mislabeled `/etc/ceph/ceph.conf` (`user_tmp_t`), fixed with `restorecon -Rv /etc/ceph/` — same class as Phase 1 issue #3 (SELinux labels). Noted a benign residual `glance_api_t`→`mysqld_exec_t` getattr denial on `mariadbd-safe-helper`, left as-is. |
