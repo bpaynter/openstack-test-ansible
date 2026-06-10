@@ -51,6 +51,16 @@ Phase 3 is planned for later. The authoritative phase/stage status lives in
 - **Verify, don't assume** (principle 10): cross-check the official 2025.1/RDO/Ceph docs
   rather than generic instructions, and confirm actions took effect.
 
+## Conventions
+
+Concrete command/tooling conventions for this cluster (the "How to help" guidance above is
+about *engagement*; these are about *how commands are written*):
+
+- **Database access:** use `sudo mysql`, **not** `mysql -u root -p`. On these AlmaLinux
+  MariaDB nodes root authenticates through the unix-socket plugin, so `sudo mysql` drops
+  straight into a root SQL session — no password prompt, and no DB password left in shell
+  history.
+
 ## Keep the repository current
 
 The docs are the project's living memory — keep them reflecting the **current state of
@@ -85,3 +95,4 @@ the user can review it.
 | 2026-06-07 | Added a "Keep the repository current" section: assistants must record new steps, decisions, and troubleshooting into the owning docs as work proceeds. |
 | 2026-06-07 | Added the "fresh chat per phase/stage" working practice (rescued from the now-deleted `overall_plan.md`). |
 | 2026-06-08 | Updated status: Phase 2 Stages 0–2 complete (the `common` role is done and idempotent), Stage 3 next. |
+| 2026-06-09 | Added a **Conventions** section; first entry: DB access uses `sudo mysql` (MariaDB unix-socket root), not `mysql -u root -p`. |
