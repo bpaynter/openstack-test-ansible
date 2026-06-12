@@ -8,11 +8,12 @@ repetition that hand-rolled Ansible exists to absorb. There is **no teardown**: 
 controller keeps its Phase 1 services and Phase 2 adds to it.
 
 > **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
-> staged Ansible approach). **Stages 0–2 (Ansible control node, cluster inventory, and
-> the throwaway `common` role) are executed and verified; Stage 3 is in progress
-> (controller-side Nova done, Neutron next).** Stages 4–6 (the compute roles and Cinder
-> block storage) are still ahead. Each stage's detailed step plan and execution log now
-> lives in its own `project-phase-2-stage-N.md` file — see the [Stages](#stages) table.
+> staged Ansible approach). **Stages 0–3 are executed and verified** — the Ansible control
+> node + inventory, the throwaway `common` role, and the controller-side Nova & Neutron
+> bring-up (Cells v2; server + L3/DHCP/metadata + the **OVS** agent all `up`). **Stage 4
+> (the compute roles) is next**; Stages 5–6 (bootstrap + Cinder) follow. Each stage's
+> detailed step plan and execution log lives in its own `project-phase-2-stage-N.md`
+> file — see the [Stages](#stages) table.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -127,7 +128,7 @@ stage has its own file with the detailed step plan and its execution log:
 |---|---|---|---|
 | 0–1 | Ansible control node + cluster inventory | ✅ complete | [project-phase-2-stage-0-1.md](project-phase-2-stage-0-1.md) |
 | 2 | Throwaway `common` role (learn the mechanics) | ✅ complete | [project-phase-2-stage-2.md](project-phase-2-stage-2.md) |
-| 3 | Controller-side Nova & Neutron (manual, one-time) | 🔄 in progress — Nova done, Neutron next | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
+| 3 | Controller-side Nova & Neutron (manual, one-time) | ✅ complete | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
 | 4 | `nova_compute` / `neutron_compute` roles (the loop on compute1/2/3) | ⬜ planned | [project-phase-2-stage-4.md](project-phase-2-stage-4.md) |
 | 5 | Bootstrap the OpenStack objects + test | ⬜ planned | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
 | 6 | Cinder (block storage), RBD-backed | ⬜ planned | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
@@ -177,5 +178,6 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
 | 2026-06-09 | **Stage 3 started** (controller-side Nova/Neutron prerequisites underway). Logged a troubleshooting episode: while standardizing the catalog/`auth_url` onto FQDNs, `openstack-glance-api` failed to restart with a `conf_read_file` RADOS error whose real cause was a mislabeled `/etc/ceph/ceph.conf` (`user_tmp_t`), fixed with `restorecon -Rv /etc/ceph/` — same class as Phase 1 issue #3 (SELinux labels). Noted a benign residual `glance_api_t`→`mysqld_exec_t` getattr denial on `mariadbd-safe-helper`, left as-is. |
 | 2026-06-12 | **Stage 3 — Nova controller-side complete and verified.** Recorded the full Nova bring-up (DBs/service account/endpoints, FQDN catalog cleanup, `nova.conf` section-by-section, Cells v2 bootstrap) with `nova-scheduler` and `nova-conductor` both `up`. Logged three troubleshooting episodes: the **placement** Apache vhost missing its `Require all granted` block (EL packaging gap; the "no supported versions" error was really a 403 routing problem), and the two-part **RabbitMQ** failure — a boot-ordering race (`epmd` before network-online; fixed with a drop-in) and rabbit 3.9 on an unsupported Erlang 26 that **EPEL had shadowed over the SIG's Erlang 24**, fixed by reinstalling with EPEL excluded and pinning `excludepkgs=erlang*` (decision #33). Neutron controller-side is the remaining Stage 3 work. |
+| 2026-06-12 | **Stage 3 complete** (controller-side Nova **and** Neutron): recorded the full OVS-based Neutron bring-up (packages, `neutron.conf`/`ml2_conf.ini`/`openvswitch_agent.ini`/agent configs, `nova.conf [neutron]` fill, empty `br-provider`, DB migration, services) with the L3/DHCP/OVS agents `up`; logged the `plugin.ini`-vs-`ovn.ini` symlink, the `os_neutron_dac_override` SELinux boolean (decision #34), a benign one-shot `cache_home_t` denial, and the recurring glance/`ceph.conf` relabel (open follow-up). Stages table + status updated; Stage 4 is next. |
 | 2026-06-12 | **Neutron L2 backend Linux bridge → Open vSwitch (OVS)** (decision #24 amended, R12 added): RDO 2025.1 Epoxy ships no linuxbridge agent, so the networking-model section now names OVS — `tunnel_types = vxlan` + per-host `local_ip`, with the flat external net on an OVS provider bridge (`bridge_mappings`). The VXLAN self-service model (#14) and the Stage 3–6 structure are unchanged; updated the consequences bullet and the NIC-mapping "problems anticipated" note. |
 | 2026-06-12 | **Split this file into per-stage files.** `project-phase-2.md` is now the overview/index — it keeps the cross-cutting design (networking model, learning/Ansible approach), the Phase-2-wide open items and "problems anticipated," and this changelog, plus a new [Stages](#stages) table. Each stage's detailed step plan and execution log moved to `project-phase-2-stage-N.md` (stages 0 and 1 share one file, as they were executed and logged as a unit). No content was dropped; the staged "Planned steps" list and the "Actual work completed" logs were re-homed verbatim into the stage files. |

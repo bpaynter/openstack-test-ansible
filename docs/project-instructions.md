@@ -23,7 +23,7 @@ planned**, not dropped).
 
 ## Current status
 
-Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–2 done, Stage 3 next);
+Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–3 done, Stage 4 next);
 Phase 3 is planned for later. The authoritative phase/stage status lives in
 [project-plan.md](project-plan.md#phases).
 

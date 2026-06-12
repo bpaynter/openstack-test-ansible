@@ -1,9 +1,9 @@
 # Phase 2 · Stage 3 — Controller-side Nova & Neutron (manual, one-time)
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — Nova
-> controller-side complete and verified (2026-06-12); **Neutron controller-side under way**
-> — prerequisites (DB, service account, endpoints) done; packages + configs next. The
-> Neutron half fills the `[neutron]` placeholder left in `nova.conf`.
+> Part of **[Phase 2](project-phase-2.md)**. **Status: complete** (verified 2026-06-12).
+> Both halves done: Nova controller-side (Cells v2; scheduler/conductor `up`) and Neutron
+> controller-side (server + L3/DHCP/metadata + the **OVS** agent all `up`; the `[neutron]`
+> placeholder in `nova.conf` is now filled). Stage 4 (the compute roles) is next.
 
 This stage is *not* a role, because the Ansible seam is repetition and this isn't
 repeated. Done by hand following the 2025.1 guide, reusing the Phase 1 service-account
@@ -52,19 +52,46 @@ upgrade check` passes and `openstack compute service list` shows **nova-schedule
 **nova-conductor** both `up`. Remaining Stage 3 work is the Neutron controller side
 (which fills the `[neutron]` placeholder).
 
-**Neutron controller-side — in progress.** Prerequisites done and verified (2026-06-12),
-mirroring the Nova/Phase 1 pattern: created the `neutron` database with grants for
+**Neutron controller-side — complete.** *Prerequisites* (verified 2026-06-12), mirroring
+the Nova/Phase 1 pattern: created the `neutron` database with grants for
 `'neutron'@'localhost'` and `'neutron'@'%'` (the `%` grant matters — neutron connects over
 TCP to `controller.lab.internal`, not the unix socket); created the `neutron` service user
 and granted it `admin` on the `service` project, **verified with `openstack role
 assignment list`** (`admin | neutron@Default | service@Default`, not inherited — the issue
 #5 check); registered the `neutron` **network** service and its three endpoints
-(public/internal/admin), all at `http://controller.lab.internal:9696`. Remaining: install
-the server + OVS/l3/dhcp/metadata agents (see the discovery below), write `neutron.conf`
-(`core_plugin = ml2`, `service_plugins = router`, `transport_url`, `[keystone_authtoken]`,
-the `[nova]` notify-back credentials, `[oslo_concurrency] lock_path` — all backend-agnostic)
-plus `ml2_conf.ini` / `openvswitch_agent.ini` / the agent configs, fill `nova.conf
-[neutron]`, `neutron-db-manage upgrade`, and start the services.
+(public/internal/admin), all at `http://controller.lab.internal:9696`.
+
+*Packages:* `openstack-neutron` (server + L3/DHCP/metadata agents, pulling
+`dnsmasq`/`haproxy`/`keepalived`/`radvd`/`conntrack-tools`), `openstack-neutron-ml2`, and
+`openstack-neutron-openvswitch` — all from `centos-openstack-epoxy` at `26.0.0`. The OVS
+*daemon* (`openvswitch3.4` + `rdo-openvswitch`, from the NFV SIG) was already present as a
+dependency. Only EPEL pull was `python3-logutils` (benign).
+
+*Config files* (kept hand-written for Stage 4 reuse): `neutron.conf` (`core_plugin = ml2`,
+`service_plugins = router`, `transport_url`, `[keystone_authtoken]`, the `[nova]`
+notify-back credentials so Neutron can fire `network-vif-plugged`, `[oslo_concurrency]
+lock_path`); `ml2_conf.ini` (`type_drivers = flat,vxlan`, `tenant_network_types = vxlan`,
+`mechanism_drivers = openvswitch`, `extension_drivers = port_security`,
+`flat_networks = provider`, `vni_ranges = 1:1000`); `openvswitch_agent.ini`
+(`[ovs] local_ip = 192.168.1.130` + `bridge_mappings = provider:br-provider`,
+`[agent] tunnel_types = vxlan`/`l2_population = true`,
+`[securitygroup] firewall_driver = openvswitch`); `l3_agent.ini` and `dhcp_agent.ini`
+(`interface_driver = openvswitch`; DHCP also `dhcp_driver = …Dnsmasq`,
+`enable_isolated_metadata = true`); `metadata_agent.ini`
+(`nova_metadata_host = controller.lab.internal`, `metadata_proxy_shared_secret`). Filled
+the `nova.conf [neutron]` placeholder with the neutron service creds plus
+`service_metadata_proxy = true` + the matching metadata secret, then restarted
+`openstack-nova-api`.
+
+*Bring-up:* `systemctl enable --now openvswitch`; created an **empty** `br-provider`
+(`ovs-vsctl add-br br-provider`) so the OVS agent's `bridge_mappings` startup check passes
+without yet touching the host NIC (attaching the physical interface + moving the `.130` IP
+is deferred to Stage 5 — connectivity-sensitive); `sudo -u neutron neutron-db-manage …
+upgrade head` (returned `OK`); started `neutron-server` + the four agents; restarted
+`openstack-nova-api`. After the SELinux fix below, `openstack network agent list` shows
+**L3 agent**, **DHCP agent**, and **Open vSwitch agent** all `Alive :-)` / `State UP`
+(the metadata agent doesn't appear in that list by design). End-to-end network/VM testing
+waits for Stage 5 (no provider/tenant networks exist yet).
 
 **Discovery — RDO 2025.1 ships no linuxbridge agent; switched to OVS (decision #24
 amended).** The planned `dnf install … openstack-neutron-linuxbridge` failed with `Unable
@@ -165,3 +192,60 @@ already satisfied — on EL9 `ebtables` is provided by the installed `iptables-n
      version number** and quietly install something the SIG stack can't use — when an RDO
      component depends on a SIG-pinned version, exclude the conflicting package from EPEL
      (`excludepkgs=`). Same EPEL-vs-SIG hazard RDO's own guidance warns about.
+
+4. **`neutron-server` config symlink: RDO Epoxy ships `ovn.ini`, but the unit reads
+   `plugin.ini` (which was missing).** The `neutron-server` `ExecStart` loads
+   `--config-file /etc/neutron/plugin.ini`, but only `/etc/neutron/ovn.ini` → `…/ml2/
+   ml2_conf.ini` existed (an OVN-default packaging artifact — Epoxy defaults to OVN). A
+   missing `--config-file` makes `neutron-server` die immediately. **Fix:** create the
+   symlink the unit expects — `sudo ln -s /etc/neutron/plugins/ml2/ml2_conf.ini
+   /etc/neutron/plugin.ini` (the install guide calls this out for RHEL/CentOS). Both
+   symlinks now point at the same `ml2_conf.ini` (the one carrying `mechanism_drivers =
+   openvswitch`); only `plugin.ini` is consulted. **Lesson:** don't assume the package
+   created the plugin symlink — `systemctl cat neutron-server` shows exactly which
+   `--config-file` paths it reads.
+
+5. **OVS agent crashed at startup — SELinux denied the privsep helper `CAP_DAC_OVERRIDE`;
+   fixed with the vendor boolean, not a custom module.** `neutron-openvswitch-agent` died
+   with `oslo_privsep.daemon.FailedToDropPrivileges: privsep helper command exited
+   non-zero (1)`, raised from `validate_local_ip()` — the agent's *first* privileged call.
+   `ausearch` showed `avc: denied { dac_override } … comm="privsep-helper" …
+   scontext=…neutron_t … tclass=capability permissive=0`. Privsep runs the helper as
+   **root but confined in `neutron_t`**, and it needs `CAP_DAC_OVERRIDE` to connect across
+   to the control socket the agent (running as the `neutron` user) created in a `0700`
+   temp dir; SELinux blocked the capability, the `connect()` got `EACCES`, the helper
+   exited 1. **Fix:** `audit2allow` itself flagged that the rule is shipped in
+   `openstack-selinux` behind a **boolean** — `sudo setsebool -P os_neutron_dac_override
+   on` — turned it on durably and the agent came `up`. Chose the boolean over a custom
+   `.pp` module (the boolean is the vendor-intended, default-off control — nothing to
+   maintain, survives policy updates) and over `permissive` (kept enforcing). Note: a
+   capability can't be file-scoped (it's all-or-nothing in the kernel), so this is the
+   narrowest *correct* form; `dac_override` is modest next to the `net_admin`/`sys_admin`
+   `neutron_t` already holds. The **L3/DHCP agents** use privsep lazily (only when building
+   namespaces), so they were `up` already but would have hit the same denial at Stage 5 —
+   this boolean covers them too. Recorded as **decision #34**.
+   - **Benign residual denial (left as-is):** after the boolean, one **one-shot**
+     `neutron_t` → `cache_home_t` `{ create }` `file` denial remains — the root privsep
+     helper resolves its cache to **`/root/.cache`** (root's `HOME`) and tries an optional
+     cache write there. Non-fatal (agent is `up`); the agent's real cache works in its own
+     `/var/lib/neutron/.cache` (`neutron_var_lib_t`, created today). Left **denied on
+     purpose**: granting `neutron_t → cache_home_t:file` would let Neutron write into
+     `/root/.cache` — *broader* than the status quo, not narrower — and nothing functional
+     needs it. SELinux is doing the right thing here; the only "fix" would be forcing the
+     helper's `HOME`/cache off `/root` (not worth it). Same disposition as the
+     `glance→mariadbd` getattr denial (problem 1).
+
+6. **glance-api hit the `conf_read_file` RADOS error *again* (recurrence of problem 1).**
+   During the Neutron bring-up, `openstack-glance-api` was found failed with the same
+   `error calling conf_read_file` — i.e. `/etc/ceph/ceph.conf` had been **re-mislabeled**
+   since the Jun 9 `restorecon`. **Fix (again):** `sudo restorecon -Rv /etc/ceph/` +
+   `systemctl restart openstack-glance-api`; `openstack image list` works. **Why it keeps
+   coming back (working theory):** the controller is a cephadm **`_admin`** host, so
+   cephadm actively maintains `/etc/ceph/ceph.conf` there and rewrites it (on config
+   change / mgr re-run) via tempfile-then-`rename()`; `rename()` **preserves the source
+   label**, so a temp file created in a `user_tmp` context lands a bad label on the live
+   file. A one-off `restorecon` can't hold against a process that re-creates the file.
+   **Follow-up (not yet done):** confirm via `ceph orch host ls` (the `_admin` tag) and
+   the `ceph.conf` mtime/label, then apply a durable fix — leaning toward a small systemd
+   `path` unit that runs `restorecon` whenever `/etc/ceph/ceph.conf` changes (self-heals
+   the label without fighting cephadm). Tracked as an open item.

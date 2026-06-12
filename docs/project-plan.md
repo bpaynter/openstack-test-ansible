@@ -53,9 +53,9 @@ controller. Full steps, config notes, and execution log in
 Add Nova + Neutron (and, at the end, Cinder block storage) to the existing cluster with
 hand-rolled Ansible (no teardown) — controller-side bring-up by hand, the repetitive
 compute work as idempotent roles, and **VXLAN self-service** tenant networking, with
-VMs and volumes both backed by Ceph RBD. Done in stages 0–6; **Stages 0–2 complete;
-Stage 3 in progress — Nova controller-side done, Neutron next.** Full design, step plan,
-and execution log in
+VMs and volumes both backed by Ceph RBD. Done in stages 0–6; **Stages 0–3 complete
+(controller-side Nova & Neutron up, OVS L2); Stage 4 (compute roles) next.** Full design,
+step plan, and execution log in
 [project-phase-2.md](project-phase-2.md).
 
 ### Phase 3 — Full teardown and rebuild with Kolla-Ansible
@@ -97,4 +97,5 @@ pool, VXLAN MTU, `kvm`/`qemu`), tracked in
 | 2026-06-08 | Marked Phase 2 **Stages 0–2 complete** (the throwaway `common` role is done and idempotent); **Stage 3** (manual controller-side Nova/Neutron) is next. Corrected the Parameters MON count to **4** (cephadm default placement; see [decisions.md](decisions.md) #15), superseding the single-MON note. |
 | 2026-06-09 | Closed the **Nova ephemeral disk backend** open item → **Ceph RBD-backed** ([decisions.md](decisions.md) #31). Added **Cinder** as Phase 2 **Stage 6** (RBD-backed `volumes` pool; [decisions.md](decisions.md) #32); Phase 2 is now staged **0–6**. Updated the Phase 2 description and open-items list accordingly. |
 | 2026-06-12 | Amended **decision #24**: Neutron mechanism driver **Linux bridge → Open vSwitch (OVS)** — RDO 2025.1 Epoxy ships no linuxbridge agent. The VXLAN self-service model (#14) is unchanged; updated the Parameters tenant-networking line accordingly. See [decisions.md](decisions.md) #24/R12 and [project-phase-2-stage-3.md](project-phase-2-stage-3.md). |
+| 2026-06-12 | Marked Phase 2 **Stage 3 complete** — Neutron controller-side is up (server + L3/DHCP/metadata + OVS agent), filling the `nova.conf [neutron]` placeholder; Stage 4 (compute roles) is next. Added [decisions.md](decisions.md) #34 (the `os_neutron_dac_override` SELinux boolean). Recurring glance/`ceph.conf` SELinux relabel left as an open follow-up (see [project-phase-2-stage-3.md](project-phase-2-stage-3.md)). |
 | 2026-06-12 | Marked Phase 2 **Stage 3 Nova controller-side complete** (Cells v2 bootstrapped; `nova-scheduler`/`-conductor` both `up`); **Neutron controller-side is the remaining Stage 3 work.** Resolving it surfaced a RabbitMQ/Erlang version fix — see [decisions.md](decisions.md) #33 and [project-phase-2.md](project-phase-2.md). |
