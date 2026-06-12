@@ -53,8 +53,9 @@ controller. Full steps, config notes, and execution log in
 Add Nova + Neutron (and, at the end, Cinder block storage) to the existing cluster with
 hand-rolled Ansible (no teardown) — controller-side bring-up by hand, the repetitive
 compute work as idempotent roles, and **VXLAN self-service** tenant networking, with
-VMs and volumes both backed by Ceph RBD. Done in stages 0–6; **Stages 0–2 complete,
-Stage 3 next.** Full design, step plan, and execution log in
+VMs and volumes both backed by Ceph RBD. Done in stages 0–6; **Stages 0–2 complete;
+Stage 3 in progress — Nova controller-side done, Neutron next.** Full design, step plan,
+and execution log in
 [project-phase-2.md](project-phase-2.md).
 
 ### Phase 3 — Full teardown and rebuild with Kolla-Ansible
@@ -95,3 +96,4 @@ pool, VXLAN MTU, `kvm`/`qemu`), tracked in
 | 2026-06-07 | Consistency/dedup pass: trimmed Parameters and the Phase 1/2 descriptions to brief summaries; replaced the "settled" recap and the Phase 2 open-items list with pointers to [decisions.md](decisions.md) and [project-phase-2.md](project-phase-2.md); fixed the stale "provider-on-its-own-VLAN" tenant-networking item to the VXLAN model. |
 | 2026-06-08 | Marked Phase 2 **Stages 0–2 complete** (the throwaway `common` role is done and idempotent); **Stage 3** (manual controller-side Nova/Neutron) is next. Corrected the Parameters MON count to **4** (cephadm default placement; see [decisions.md](decisions.md) #15), superseding the single-MON note. |
 | 2026-06-09 | Closed the **Nova ephemeral disk backend** open item → **Ceph RBD-backed** ([decisions.md](decisions.md) #31). Added **Cinder** as Phase 2 **Stage 6** (RBD-backed `volumes` pool; [decisions.md](decisions.md) #32); Phase 2 is now staged **0–6**. Updated the Phase 2 description and open-items list accordingly. |
+| 2026-06-12 | Marked Phase 2 **Stage 3 Nova controller-side complete** (Cells v2 bootstrapped; `nova-scheduler`/`-conductor` both `up`); **Neutron controller-side is the remaining Stage 3 work.** Resolving it surfaced a RabbitMQ/Erlang version fix — see [decisions.md](decisions.md) #33 and [project-phase-2.md](project-phase-2.md). |
