@@ -274,3 +274,17 @@ already satisfied — on EL9 `ebtables` is provided by the installed `iptables-n
      by being containerized or by giving OpenStack nodes a static minimal `ceph.conf`; the
      RPM-RDO + cephadm + enforcing combo on a converged node is the less-trodden path Phase 2
      deliberately walks.
+
+7. **memcached failed to come up after a reboot — same `network-online` boot-ordering race
+   as RabbitMQ (problem 3a).** On a controller restart, `memcached.service` died with
+   `bind(): Cannot assign requested address` / `failed to listen on TCP port 11211`
+   (EADDRNOTAVAIL, exit 71). memcached binds the **management IP** (`-l 192.168.1.130`, per
+   the OpenStack guide — every service's `memcached_servers = controller.lab.internal:11211`
+   resolves there, so it can't bind loopback-only), and the stock unit's `After=network.target`
+   lets it start **before NetworkManager has assigned the IP** to the interface. **Fix:** a
+   `systemctl edit memcached` drop-in adding `After=network-online.target` /
+   `Wants=network-online.target` (the `NetworkManager-wait-online.service` enabled for the
+   RabbitMQ fix already backs the target); `systemctl restart memcached` recovered it
+   immediately, and the drop-in prevents the race on future boots. **Identical class and fix
+   to problem 3a (epmd)** — **any controller service that binds the LAN IP needs
+   `network-online` ordering**; a future rebuild will hit the same with these services.
