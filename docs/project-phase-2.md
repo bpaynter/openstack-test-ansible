@@ -9,10 +9,10 @@ controller keeps its Phase 1 services and Phase 2 adds to it.
 
 > **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
 > staged Ansible approach). **Stages 0–2 (Ansible control node, cluster inventory, and
-> the throwaway `common` role) are executed and verified** — see "Actual work completed"
-> below. Stages 3–6 (the controller-side bring-up, the compute roles, and Cinder block
-> storage) are still ahead; the detailed VXLAN Neutron config is produced in a later
-> implementation chat.
+> the throwaway `common` role) are executed and verified; Stage 3 is in progress
+> (controller-side Nova done, Neutron next).** Stages 4–6 (the compute roles and Cinder
+> block storage) are still ahead. Each stage's detailed step plan and execution log now
+> lives in its own `project-phase-2-stage-N.md` file — see the [Stages](#stages) table.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -63,10 +63,10 @@ Consequences carried into the steps below:
 Phase 2 follows the project's learning-first principles — *find a template and modify it
 for this cluster* rather than copy-pasting playbooks, and build understanding on
 low-stakes exercises before real services. See
-[project-principles.md](project-principles.md) (principles 1–4). The staged plan below
-applies them: generate the standard skeletons (`ansible-galaxy role init`,
-`ansible-config init --disabled`) and walk each file line by line, deciding what is
-constant versus what varies per host.
+[project-principles.md](project-principles.md) (principles 1–4). The staged plan (now
+split across the per-stage files) applies them: generate the standard skeletons
+(`ansible-galaxy role init`, `ansible-config init --disabled`) and walk each file line by
+line, deciding what is constant versus what varies per host.
 
 > Implementation caveat: 2025.1 service config keys can shift between minor versions, and
 > linuxbridge-vs-OVS guidance changes release to release — cross-check the official
@@ -78,8 +78,8 @@ constant versus what varies per host.
 Run Ansible from the **controller** as the control node (it already has SSH reach and
 `admin-openrc`, and sits inside `lab.internal` so name resolution already works).
 Ansible installs nothing on managed nodes — it pushes Python over SSH and runs modules.
-The Ansible project lives in the repo's **`ansible/`** directory; the file paths in this
-section and the steps below are relative to it.
+The Ansible project lives in the repo's **`ansible/`** directory; the file paths in the
+per-stage files are relative to it.
 
 - Install Ansible via **`uv`** (`uv tool install ansible --python 3.12`) — the full
   community package (community **13.7** / `ansible-core` **2.20**), which bundles
@@ -113,83 +113,20 @@ section and the steps below are relative to it.
   `command:` with `creates=`/`run_once:` guards for one-shot operations. A second run
   reporting `ok` (not `changed`) is the idempotence check.
 
-## Planned steps (staged for learning)
+## Stages
 
-0. **Stage 0 — Ansible control setup** ✅ *complete* — Ansible (via `uv`) on the
-   controller, SSH + escalation model settled, project `ansible.cfg` + git repo.
-1. **Stage 1 — Inventory + prove connectivity** ✅ *complete* — YAML inventory (groups +
-   per-host `local_ip`), verified with `ansible-inventory --graph` and `ansible all -m
-   ping`. ("A playbook is just ad-hoc commands made repeatable.")
-2. **Stage 2 — A throwaway `common` role to learn the mechanics** ✅ *complete* —
-   `ansible-galaxy role init common`, then a low-stakes, genuinely useful task: render
-   `/etc/hosts` identically on all four nodes via the `template` module
-   (`templates/hosts.j2` → `/etc/hosts`). Run it twice; the second run must report `ok`
-   not `changed`. This teaches the role skeleton
-   (`tasks`/`templates`/`defaults`/`vars`/`handlers`/`meta`), the single most important
-   module (`template`), and idempotence — before touching Nova.
-3. **Stage 3 — Controller-side Nova & Neutron (MANUAL, one-time)** — *not* a role, because
-   the Ansible seam is repetition and this isn't repeated. Done by hand following the
-   2025.1 guide, reusing the Phase 1 service-account pattern (ensure the `service`
-   project exists → user create → role add `--project service` → `[keystone_authtoken]`;
-   **verify each grant** with `role assignment list` — the Phase 1 issue #5 lesson).
-   - **Nova:** `nova`/`nova_api`/`nova_cell0` DBs + `nova` service user; install
-     nova-api/conductor/scheduler/novncproxy; configure `nova.conf`; the `nova-manage
-     cell_v2` cell setup is the one unfamiliar part vs. Phase 1 — read the guide's cell
-     section. (novncproxy gives VM console access later.)
-   - **Neutron:** `neutron` DB + service user; install neutron server +
-     linuxbridge/l3/dhcp/metadata agents; configure `neutron.conf`
-     (`service_plugins = router`), `ml2_conf.ini` (`type_drivers` incl. `flat`+`vxlan`,
-     `tenant_network_types = vxlan`, `mechanism_drivers = linuxbridge`, `vni_ranges`),
-     `linuxbridge_agent.ini` (`enable_vxlan = true`, `local_ip = 192.168.1.130` on the
-     controller, `l2_population = true`), and the l3/dhcp/metadata agent configs. **Keep these hand-written
-     `.conf` files** — the compute-side configs are nearly identical, which sets up
-     Stage 4.
-4. **Stage 4 — `nova_compute` and `neutron_compute` roles (the loop on compute1/2/3)** —
-   the payoff. Convert a Stage-3 `.conf` into `templates/nova.conf.j2`, then go line by
-   line replacing host/environment-specific values with Jinja2 vars (`local_ip =
-   192.168.1.130` → `local_ip = {{ local_ip }}`; controller hostname, RabbitMQ string,
-   passwords → `group_vars` refs; genuinely-identical lines stay literal). `tasks/main.yml`
-   is then short: `dnf` install → `template` render → `service` start, with restarts via
-   handlers. Per-node specifics: `[vnc] server_proxyclient_address` = that node's own IP;
-   `[libvirt] virt_type = kvm` (VT-x i7s — fail loudly if `vmx` absent) and
-   **`[libvirt] images_type = rbd`** backed by the `vms` pool with a per-node libvirt
-   secret holding the `client.nova` key (decision #31 — RBD-backed ephemeral; reuses the
-   Phase 1 `/etc/ceph` permissions lesson); **NIC names may
-   differ per node** so keep `physical_interface_mappings`/`local_ip` per-host. After the
-   role runs, `nova-manage cell_v2 discover_hosts` **once** on the controller (a
-   `command` task with `run_once: true` — teaches that not every task runs on every host);
-   verify `openstack compute service list` / `network agent list`.
-5. **Stage 5 — Bootstrap the OpenStack objects + test** — API-driven Ansible using the
-   `openstack.cloud` collection (`network`/`subnet`/`router` modules), a different style
-   from the file-driven Stages 2–4. Create, in dependency order: the flat
-   provider/external network on `192.168.1.0/24` with its floating-IP pool (outside the
-   home DHCP range and `.130–.133`); the VXLAN tenant network + `10.0.0.0/24` subnet
-   (**set tenant MTU 1450**); a Neutron router (provider net as external gateway, tenant
-   subnet as internal interface). Then a small flavor, a keypair, an SSH/ICMP security
-   group, and `openstack server create` for a CirrOS instance; assign a floating IP and
-   SSH in from the home LAN. When that works, the core compute plane is up — Stage 6
-   adds persistent block storage.
-6. **Stage 6 — Cinder (block storage), RBD-backed** — add persistent volumes once a VM
-   boots. Controller-side and largely a repeat of the Phase 1 Glance pattern, so done
-   **by hand** (not a role): create the `volumes` Ceph pool + `client.cinder` auth/keyring;
-   the `cinder` DB; the service account (ensure the `service` project exists → user create
-   → `role add --project service` → **verify with `role assignment list`** — the Phase 1
-   issue #5 lesson); install `cinder-api`/`cinder-scheduler`/`cinder-volume` on the
-   controller; configure `cinder.conf` with an `[rbd]` backend (`rbd_pool = volumes`,
-   `rbd_user = cinder`, `rbd_ceph_conf`, and `rbd_secret_uuid` = the libvirt secret) and
-   register the **block-storage v3** endpoints. The compute side needs only the libvirt
-   Ceph secret already placed in Stage 4 (decision #31). Test: `openstack volume create`,
-   confirm the UUID in `rbd -p volumes ls`, then `openstack server add volume` to attach
-   it to the Stage 5 instance and verify the block device appears inside the guest. When
-   that works, **Phase 2 is done.** (Cinder is optional on a throwaway cluster — included
-   here for block-storage learning and volume-I/O benchmarking; see [decisions.md](decisions.md) #32.)
+Phase 2 is built in stages 0–6 (staged for learning — generate the standard skeletons and
+walk each file line by line, deciding what is constant versus what varies per host). Each
+stage has its own file with the detailed step plan and its execution log:
 
-> **Nova ephemeral disk backend — decided: Ceph RBD-backed** (decision #31): a `vms`
-> pool, `client.nova` auth, a per-compute libvirt secret, `[libvirt] images_type = rbd`.
-> Chosen over local qcow2 because it enables live migration, makes Ceph recovery visibly
-> affect running VMs (a benchmark observable), reuses the Phase 1 keyring-permissions
-> lesson, and shares the libvirt Ceph secret that Stage 6 Cinder also needs. Configured
-> in Stage 4's libvirt step.
+| Stage | Scope | Status | File |
+|---|---|---|---|
+| 0–1 | Ansible control node + cluster inventory | ✅ complete | [project-phase-2-stage-0-1.md](project-phase-2-stage-0-1.md) |
+| 2 | Throwaway `common` role (learn the mechanics) | ✅ complete | [project-phase-2-stage-2.md](project-phase-2-stage-2.md) |
+| 3 | Controller-side Nova & Neutron (manual, one-time) | 🔄 in progress — Nova done, Neutron next | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
+| 4 | `nova_compute` / `neutron_compute` roles (the loop on compute1/2/3) | ⬜ planned | [project-phase-2-stage-4.md](project-phase-2-stage-4.md) |
+| 5 | Bootstrap the OpenStack objects + test | ⬜ planned | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
+| 6 | Cinder (block storage), RBD-backed | ⬜ planned | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
 
 ## Open items for Phase 2 implementation
 
@@ -219,274 +156,6 @@ section and the steps below are relative to it.
   permissive.
 - **FQDN consistency** — keep using FQDNs everywhere in the inventory.
 
-## Actual work completed
-
-### Stages 0–1 — Ansible control node + inventory (complete, verified 2026-05-24)
-
-**Stage 0 — Ansible control node:**
-
-- **Control node:** the controller (7071), inside `lab.internal` so `/etc/hosts` already
-  resolves every managed node.
-- **Ansible install:** via **`uv`**, not the AlmaLinux `dnf` package (its `ansible-core`
-  2.14/2.15 line is end-of-life and too old to match the live docs). Final:
-  `uv python install 3.12` then `uv tool install ansible --python 3.12` →
-  community **13.7** / `ansible-core` **2.20** on **Python 3.12**. Match all Ansible doc
-  references to **version 13**.
-- **Escalation model:** Ansible runs as the normal login user — never as root, never
-  `sudo ansible-playbook`. `sudo` is left **password-protected** (a deliberate security
-  choice, not passwordless); escalation is per-play/per-task `become` with `-K` /
-  `--ask-become-pass` at run time. `become` is default-**off** in `ansible.cfg`.
-- **`ansible.cfg`** (project-local): `inventory` path, `result_format = yaml`,
-  `callbacks_enabled = profile_tasks`, `interpreter_python = auto_silent`. (`become` not
-  set; `become_ask_pass` was tried then removed — see problem 5. `remote_user` is not
-  set: the same account is used locally and remotely, so Ansible's default of connecting
-  as the current user is correct. `result_format = yaml` replaced an earlier
-  `stdout_callback = yaml` — see the Stage 2 problem log.)
-- **Project directory:** the Ansible project lives in the repo's **`ansible/`** directory
-  (`~/git/openstack-test-ansible/ansible/` on the controller), laid out as `ansible.cfg`,
-  `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`, `site.yml`. The repo has been
-  version-controlled from the start; the Ansible file paths in this doc are relative to
-  `ansible/`.
-
-**Stage 1 — Cluster inventory:**
-
-- A single YAML `inventory.yml`. YAML inventories require the top-level `all` group with
-  groups nested under `all: → children:` (unlike INI, which infers it).
-- Groups: `controller` (one host, `controller.lab.internal`) and `compute`
-  (`compute1/2/3.lab.internal`). Group names are singular and must match `group_vars/`
-  filenames exactly.
-- Host range syntax is **colon**-delimited: `compute[1:3].lab.internal` (not `[1-3]`,
-  which is treated as a literal hostname).
-- Variable placement: `host_vars/` for per-host values (so far just `local_ip` — each
-  node's own underlay IP / VXLAN tunnel-endpoint address, a value a range cannot
-  express); `group_vars/all.yml` for non-secret cluster facts (controller hostname,
-  Keystone auth URL, OpenStack release, RabbitMQ/memcached hosts). Service passwords are
-  deferred to an `ansible-vault` file in Stage 4 — not placed in plaintext `group_vars`.
-  Note: `local_ip` is defined on **all four** hosts (controller `.130` plus computes
-  `.131`/`.132`/`.133`), not the three computes only — the controller is also a VTEP
-  (it runs the L3/DHCP agents, which sit on tenant networks). See decision in the Stage 2
-  log below.
-
-**Problems hit and fixes:**
-
-1. **`uv` kept installing `ansible` 8.7.0.** Not a bug — its resolver walked back to the
-   newest release whose `ansible-core` the interpreter could satisfy; AlmaLinux's system
-   Python 3.9 was the hidden cap. Fix: pin Python 3.12 (`uv tool install ansible
-   --python 3.12`); `'ansible>=11'` turns the silent fallback into a loud resolver error.
-2. **`uv tool install ansible` only exposed `ansible-community`.** `uv tool` links the
-   requested package's own entry points; the real `ansible`/`ansible-playbook` commands
-   belong to the `ansible-core` dependency and had to be exposed explicitly.
-3. **Two Ansibles on the box** (the `uv` one + the leftover distro `ansible-core`) —
-   `ansible` could resolve to either by `PATH` order; `which -a ansible` is the diagnostic.
-4. **`ansible-inventory` rejected the YAML inventory — two causes:** (a) after moving the
-   project into the git-repo folder, `ansible.cfg`'s `inventory` path no longer resolved
-   (re-check with `ansible --version` / `ansible-config dump` after any move); (b) the
-   host range was written with a hyphen `[1-3]` instead of the colon `[1:3]`.
-5. **A bare `ansible … -m command -a hostname` prompted for a BECOME password.** Not a
-   misconfiguration — `become` was correctly off, but `become_ask_pass = True` makes
-   Ansible pre-collect a become password at the start of *every* run. Fix/decision:
-   removed `become_ask_pass` from `ansible.cfg` and pass `-K` per invocation, so the
-   prompt appears only for runs that actually escalate.
-
-**Verification (all passing at handoff):** `ansible --version` (core 2.20 / community 13.7
-/ Python 3.12), `which -a ansible` (resolves into the `uv` tool dir),
-`ansible-config dump --only-changed` (confirms cfg; `become` not set),
-`ansible-inventory --graph` (`all` → `controller` 1 host, `compute` 3 hosts),
-`ansible-inventory --host compute2.lab.internal` (`local_ip = 192.168.1.132`),
-`ansible all -m ping` (pong from all four).
-
-### Stage 2 — throwaway `common` role for `/etc/hosts` (complete, verified 2026-06-08)
-
-A low-stakes role to learn role structure before Nova/Neutron: render an identical,
-inventory-driven `/etc/hosts` to all four nodes.
-
-- **Skeleton:** `ansible-galaxy role init --init-path roles common` → `roles/common/`
-  with `tasks/`, `templates/`, `files/`, `handlers/`, `defaults/`, `vars/`, `meta/`,
-  `tests/`. `tasks/main.yml` is the entry point; `templates/` holds Jinja2 (`.j2`) files
-  the `template` module finds by relative path; `files/` is for static `copy` content;
-  `defaults/` is lowest-precedence vars, `vars/` highest.
-- **Template** `templates/hosts.j2`: the loopback lines plus
-  `{% for host in groups['all'] | sort %}` emitting
-  `{{ hostvars[host].local_ip }}  {{ host }}  {{ host.split('.')[0] }}` (FQDN canonical,
-  short name as alias). Headed with `{{ ansible_managed }}`. Ansible's `template` module
-  enables `trim_blocks`/`lstrip_blocks` by default, so the loop renders without
-  blank-line artifacts. The `| sort` keeps the output byte-stable run-to-run, which is
-  what makes the idempotence check pass.
-- **Task** `tasks/main.yml`: `ansible.builtin.template` (FQCN best practice) with
-  `src: hosts.j2`, `dest: /etc/hosts`, `owner/group: root`, `mode: '0644'` (quoted to
-  avoid the octal YAML gotcha), `backup: true` (a timestamped backup the first time it
-  overwrites a live `/etc/hosts`), and `become: true` (per-task escalation; `-K` collects
-  the sudo password once).
-- **`local_ip` vs `underlay_ip` decision (Option A):** reuse the existing per-host
-  `local_ip` for `/etc/hosts` rendering rather than introduce a separate `underlay_ip`.
-  On this single-NIC cluster the underlay IP and the VXLAN tunnel endpoint are always the
-  same value, so a second variable isn't worth the redundancy. (Discovered that
-  `local_ip` was already defined on all four hosts, including the controller — which is
-  fine, since the controller is also a VTEP.) Recorded as decision #29.
-- **`site.yml`:** a top-level play (`hosts: all`, `roles: [common]`), with **no
-  play-level `become`** — escalation stays per-task (decision #28). This is also the
-  project's first real playbook entry point.
-- **Applied and verified (2026-06-08):** previewed with `--check --diff -K`, applied with
-  `--diff -K`, then re-run to prove idempotence — the second run reported **all `ok`, no
-  diff** (the Stage 2 acceptance test). The `--check` diff also showed the render
-  correcting the live hand-written files, whose host columns were ordered
-  `IP  short  FQDN`; the template's FQDN-canonical order (`IP  FQDN  short`) matches the
-  form recorded in [project-phase-1.md](project-phase-1.md) and is the right canonical
-  order for a cluster whose services speak FQDNs. Loopback lines were already
-  localhost-only on every node (Phase 0 done correctly — no FQDN parked on `127.0.0.1`).
-- **No handler in `common`:** rendering `/etc/hosts` has no service to bounce, so forcing
-  a handler here would be busywork. The `notify` → validate-and-reload pattern was instead
-  exercised for real in the throwaway cephadm-fix playbook (see Problems below).
-
-**Problems hit and fixes (Stage 2):**
-
-1. **`community.general.yaml` stdout callback removed.** The first `ansible-playbook`
-   run failed: `ansible.cfg` set `stdout_callback = yaml`, but that callback lived in
-   `community.general`, and **12.0.0 removed it** (the full `ansible` 13.7 package bundles
-   community.general 12.x). Its job moved to an option on the built-in default callback.
-   Fix: replace `stdout_callback = yaml` with `result_format = yaml` (supported by
-   `ansible.builtin.default` since ansible-core 2.13). `callbacks_enabled = profile_tasks`
-   is a separate plugin and was unaffected. A small instance of the documented
-   version-skew caveat — config keys shift between versions, so match the v13 docs.
-2. **compute3 (7050) dropped off mid-stage, then broke cephadm's SSH.** The box went
-   unreachable (no ping, no Ansible SSH); since it carries 2 of the 5 OSDs *and* — as this
-   episode revealed — a MON, Ceph went `HEALTH_WARN` with degraded/undersized PGs. After
-   it returned, `ceph health detail` showed **cephadm SSH auth failures for `root`** ("3
-   hosts fail cephadm check"). Root cause: root's `authorized_keys` had been pruned earlier
-   on the assumption that Ansible's `become` model made root SSH unnecessary — true for
-   Ansible, but **cephadm is a separate management plane that SSHes to every host as
-   `root`** with its own cluster key. Fix: restored the cephadm public key
-   (`ceph cephadm get-pub-key`) to root's `authorized_keys` on all four nodes via a
-   throwaway Ansible playbook (`authorized_key` + an sshd `PermitRootLogin` drop-in,
-   reloaded through a validate-then-reload handler), **hardened** with
-   `PermitRootLogin prohibit-password` and a `from="192.168.1.128/29"` source restriction
-   scoped to the cluster nodes (so the key is only usable from a node that could run the
-   active mgr). Recorded as **decision #30**. The same `ceph -s` also revealed the cluster
-   runs **4 MONs**, not the single MON **decision #15** had recorded — cephadm's default
-   MON placement had spread them across the added hosts; #15 corrected accordingly.
-
-**VXLAN/VTEP reference (clarified here, used in Stage 4):** a VTEP is the host IP that
-sends/receives VXLAN-encapsulated UDP (port **4789**); each node's `local_ip` *is* its
-VTEP address once Stage 4 templates the linuxbridge config. The `neutron_compute` (and
-controller) ml2/linuxbridge config will set `enable_vxlan = true`, `local_ip`, and
-typically `l2_population = true` (proactive forwarding from Neutron's DB rather than
-multicast, which home underlays carry poorly), with controller-side
-`type_drivers = flat,vxlan`, `tenant_network_types = vxlan`, and a `vni_ranges` pool
-(e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
-`ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
-
-### Stage 3 — controller-side Nova & Neutron (Nova complete, verified 2026-06-12; Neutron in progress)
-
-**Nova controller-side — complete.** Created the `nova`, `nova_api`, and `nova_cell0`
-databases and the `nova` service account (`admin` on the `service` project), plus the
-three Compute API endpoints (public/internal/admin) at
-`http://controller.lab.internal:8774/v2.1`. Standardized the Keystone catalog and every
-`auth_url` onto the FQDN (`controller` → `controller.lab.internal`) and confirmed
-`openstack endpoint set --url` edits an endpoint in place — no delete/recreate — which
-fixed an `:8884` port typo. Installed
-`openstack-nova-api`/`-conductor`/`-novncproxy`/`-scheduler` and wrote `nova.conf`
-section by section against the live 2025.1 RDO guide (`[DEFAULT]`
-`transport_url`/`my_ip = 192.168.1.130`, `[api_database]`/`[database]`,
-`[keystone_authtoken]` + `[service_user]`, `[placement]`, `[glance] api_servers =
-http://controller.lab.internal:9292`, `[oslo_concurrency] lock_path =
-/var/lib/nova/tmp`, `[vnc]`; the `[neutron]` section is a placeholder until the Neutron
-half lands). Four distinct passwords are in play and were kept straight: `NOVA_DBPASS`,
-the `nova` Keystone password, `RABBIT_PASS`, and `PLACEMENT_PASS`. Bootstrapped Cells v2
-as `sudo -u nova` (never root — avoids root-owned files under the service dirs):
-`nova-manage api_db sync` → `map_cell0` → `create_cell --name=cell1` → `nova-manage db
-sync`, verified with `list_cells` (cell0 on `none:/` → `nova_cell0`; cell1 on the
-RabbitMQ transport → `nova`). After the three fixes below, `sudo -u nova nova-status
-upgrade check` passes and `openstack compute service list` shows **nova-scheduler** and
-**nova-conductor** both `up`. Remaining Stage 3 work is the Neutron controller side
-(which fills the `[neutron]` placeholder).
-
-**Problems hit and fixes (Stage 3):**
-
-1. **glance-api failed to start — real cause was a mislabeled `/etc/ceph/ceph.conf`, not
-   the config edit that preceded it.** While standardizing the Keystone catalog and the
-   `glance-api.conf` `[keystone_authtoken]` `auth_url`/`www_authenticate_uri` onto the
-   FQDN (`controller` → `controller.lab.internal`), the next `openstack-glance-api`
-   restart died with `ERROR: [errno 2] RADOS object not found (error calling
-   conf_read_file)`. The message looks auth-related but is the **RBD store** failing to
-   read its Ceph config — and the edit was a red herring: the `auth_url` change was
-   correct, and the `[ceph]` store section (`rbd_store_ceph_conf = /etc/ceph/ceph.conf`)
-   was intact. The restart was simply the first glance-api start since
-   `/etc/ceph/ceph.conf` was last rewritten (Jun 6), and that file carried the wrong
-   SELinux label — `unconfined_u:object_r:user_tmp_t:s0` (the type a file picks up when
-   created in a user/temp context and moved into place). glance-api runs **confined** as
-   `glance_api_t`, which is not allowed to read `user_tmp_t`; a `sudo -u glance cat` test
-   "passed" only because it ran **unconfined**, making it a false negative. The original
-   read denial never appeared in `ausearch` (almost certainly `dontaudit`-suppressed),
-   which is why the first check looked empty even though the label was the cause.
-   **Fix:** `sudo restorecon -Rv /etc/ceph/` relabeled `ceph.conf` to its policy-correct
-   type; glance-api then started and `openstack image list` worked. Same class as
-   **Phase 1 issue #3** (Ceph access for service users) — but SELinux *labels*, not just
-   owner/mode. **Lesson:** when a Ceph-backed service fails on `conf_read_file`, check
-   `ls -lZ /etc/ceph` first, and test readability from the *confined service domain*, not
-   an unconfined `sudo -u` shell.
-   - **Benign residual denial (left as-is):** after the fix, `ausearch` shows one
-     `glance_api_t` → `mysqld_exec_t` `getattr` denial on `/usr/bin/mariadbd-safe-helper`
-     during DB init. glance is fully functional (image list works ⇒ DB access is fine), so
-     this stat is off the needed path — likely the MariaDB client library probing for
-     local-server artifacts. Left unaddressed on this throwaway cluster (no `permissive`,
-     no blind `audit2allow`).
-
-2. **nova-scheduler/nova-conductor crashed with "placement service ... does not have any
-   supported versions" — the placement Apache vhost was missing its access grant.** First
-   real use of Placement (another Phase-1-installed-but-never-exercised service): both
-   services logged that the Placement endpoint existed but exposed no supported
-   microversions. `curl http://controller.lab.internal:8778/` returned the **AlmaLinux
-   default Apache test page with a 403**, not a placement JSON payload — so Apache wasn't
-   routing `/` to the placement app at all. Cause: `/etc/httpd/conf.d/00-placement-api.conf`
-   shipped *without* the `<Directory>` / `<Files placement-api>` `Require all granted`
-   access block — a known placement-on-EL packaging gap. **Fix:** added the grant block,
-   `httpd -t`, `systemctl reload httpd`; placement then answered with its version document
-   and the Nova services cleared the check. **Lesson:** a placement "no supported versions"
-   error is usually an Apache routing/permission problem, not a placement-service one —
-   `curl` the endpoint and look at *what* actually answers.
-
-3. **RabbitMQ down, then crashing nova on connect — two stacked faults: a boot-ordering
-   race, and an unsupported RabbitMQ/Erlang pairing that EPEL had silently introduced.**
-   RabbitMQ was the third Phase-1 service exercised for the first time by Nova. Three
-   parts:
-   - **(a) Dead after every reboot — `epmd` bound before the LAN was up.** `rabbitmq-server`
-     failed at boot with `epmd error for host controller: address` (EADDRNOTAVAIL): the
-     Erlang port mapper tries to bind `rabbit@controller` to `192.168.1.130` before
-     NetworkManager has finished bringing the interface up. **Fix:** `systemctl enable
-     NetworkManager-wait-online.service` plus a `systemctl edit rabbitmq-server` drop-in
-     adding `After=network-online.target` / `Wants=network-online.target`. The drop-in
-     lives in `/etc/systemd/system/`, so it survived the package reinstall in (c).
-   - **(b) Service up, but nova connections were accepted, authenticated, then killed.**
-     The client saw `Server unexpectedly closed connection` / `Connection reset by peer`;
-     the rabbit log showed the reader crashing with
-     `{unexpected_message,{'EXIT',#Port,einval}}`. A minimal Python `amqp` loopback test
-     failed identically on **both** `127.0.0.1` and `.130`, ruling out the network path.
-     **Root cause:** RabbitMQ **3.9.21** was running on **Erlang/OTP 26.2.5**, an
-     unsupported pairing — rabbit 3.9 tops out at Erlang 24, and Erlang 26 needs rabbit
-     ≥ 3.12 (per the official compatibility matrix).
-   - **(c) Why Erlang 26 was present, and the fix.** RDO pulls RabbitMQ from the CentOS
-     Messaging SIG repo (`centos-rabbitmq-38`), which *ships a matched Erlang 24*
-     (`24.1.7`, `24.3.4.2`) — but **EPEL also ships Erlang `26.2.5`, and dnf picked it on
-     version number alone**, quietly installing an incompatible Erlang under rabbit 3.9.
-     Two escape routes were ruled out first: removing `centos-release-rabbitmq-38` to take
-     the rabbit-4 track **cascades to remove `centos-release-openstack-epoxy`** (the whole
-     RDO 2025.1 repo set) and was aborted; installing `centos-release-rabbitmq-4`
-     *alongside* `-38` fails on a file conflict (both own
-     `/etc/yum.repos.d/CentOS-Messaging-rabbitmq.repo`). **Fix (clean, RDO-native —
-     decision #33):** reinstall with EPEL out of the transaction so the SIG's Erlang 24
-     wins — `sudo dnf install --disablerepo=epel rabbitmq-server` (pulled
-     `rabbitmq-server 3.9.21` + `erlang 24.3.4.2`, both from `centos-rabbitmq-38`) — then
-     **pin it durably** with `sudo dnf config-manager --setopt=epel.excludepkgs=erlang*
-     --save` so a future `dnf update` can't drag Erlang 26 back in. Recreated the
-     `openstack` vhost user (`add_user` + `set_permissions -p / openstack '.*' '.*' '.*'`);
-     the loopback `amqp` test then printed `OK`, and restarting nova-scheduler/-conductor
-     brought both `up`. **Lesson:** on EL, **EPEL can outrank a CentOS SIG package by
-     version number** and quietly install something the SIG stack can't use — when an RDO
-     component depends on a SIG-pinned version, exclude the conflicting package from EPEL
-     (`excludepkgs=`). Same EPEL-vs-SIG hazard RDO's own guidance warns about.
-
-_Stages 4–6 to be filled in as later chunks execute them._
-
 ---
 
 ## Changelog
@@ -504,3 +173,4 @@ _Stages 4–6 to be filled in as later chunks execute them._
 | 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
 | 2026-06-09 | **Stage 3 started** (controller-side Nova/Neutron prerequisites underway). Logged a troubleshooting episode: while standardizing the catalog/`auth_url` onto FQDNs, `openstack-glance-api` failed to restart with a `conf_read_file` RADOS error whose real cause was a mislabeled `/etc/ceph/ceph.conf` (`user_tmp_t`), fixed with `restorecon -Rv /etc/ceph/` — same class as Phase 1 issue #3 (SELinux labels). Noted a benign residual `glance_api_t`→`mysqld_exec_t` getattr denial on `mariadbd-safe-helper`, left as-is. |
 | 2026-06-12 | **Stage 3 — Nova controller-side complete and verified.** Recorded the full Nova bring-up (DBs/service account/endpoints, FQDN catalog cleanup, `nova.conf` section-by-section, Cells v2 bootstrap) with `nova-scheduler` and `nova-conductor` both `up`. Logged three troubleshooting episodes: the **placement** Apache vhost missing its `Require all granted` block (EL packaging gap; the "no supported versions" error was really a 403 routing problem), and the two-part **RabbitMQ** failure — a boot-ordering race (`epmd` before network-online; fixed with a drop-in) and rabbit 3.9 on an unsupported Erlang 26 that **EPEL had shadowed over the SIG's Erlang 24**, fixed by reinstalling with EPEL excluded and pinning `excludepkgs=erlang*` (decision #33). Neutron controller-side is the remaining Stage 3 work. |
+| 2026-06-12 | **Split this file into per-stage files.** `project-phase-2.md` is now the overview/index — it keeps the cross-cutting design (networking model, learning/Ansible approach), the Phase-2-wide open items and "problems anticipated," and this changelog, plus a new [Stages](#stages) table. Each stage's detailed step plan and execution log moved to `project-phase-2-stage-N.md` (stages 0 and 1 share one file, as they were executed and logged as a unit). No content was dropped; the staged "Planned steps" list and the "Actual work completed" logs were re-homed verbatim into the stage files. |
