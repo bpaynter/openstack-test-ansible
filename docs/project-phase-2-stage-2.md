@@ -83,10 +83,16 @@ inventory-driven `/etc/hosts` to all four nodes.
 
 **VXLAN/VTEP reference (clarified here, used in Stage 4):** a VTEP is the host IP that
 sends/receives VXLAN-encapsulated UDP (port **4789**); each node's `local_ip` *is* its
-VTEP address once Stage 4 templates the linuxbridge config. The `neutron_compute` (and
-controller) ml2/linuxbridge config will set `enable_vxlan = true`, `local_ip`, and
-typically `l2_population = true` (proactive forwarding from Neutron's DB rather than
-multicast, which home underlays carry poorly), with controller-side
-`type_drivers = flat,vxlan`, `tenant_network_types = vxlan`, and a `vni_ranges` pool
-(e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
-`ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
+VTEP address once Stage 4 templates the OVS agent config. The `neutron_compute` (and
+controller) ml2/OVS config will set `local_ip`, `tunnel_types = vxlan`, and typically
+`l2_population = true` (proactive forwarding from Neutron's DB rather than multicast,
+which home underlays carry poorly), with controller-side `type_drivers = flat,vxlan`,
+`tenant_network_types = vxlan`, and a `vni_ranges` pool (e.g. `1:1000`). Today nothing
+reads `local_ip` — confirm the pre-Stage-4 state with `ip -d link show type vxlan` and
+`ss -lun | grep 4789` (both empty).
+
+> **Backend note (added 2026-06-12):** this paragraph originally described the **linuxbridge**
+> agent (`enable_vxlan = true`). RDO 2025.1 ships no linuxbridge agent, so the L2 backend
+> is now **Open vSwitch** — decision #24 amended; see
+> [project-phase-2-stage-3.md](project-phase-2-stage-3.md). The VXLAN/VTEP mechanics above
+> are unchanged; only the agent and its key names differ (`tunnel_types = vxlan`).

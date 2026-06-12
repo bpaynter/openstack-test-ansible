@@ -23,7 +23,7 @@ The key operating constraints, at a glance. The full reasoning for each is in
 - **OS: AlmaLinux 9 Minimal, SELinux enforcing; firewalld disabled.**
 - **Static IPs, no DHCP**, on `lab.internal` — so the cluster can't interfere with the
   home network. (Address plan in [inventory.md](inventory.md).)
-- **Tenant networking: VXLAN self-service** (Linux bridge) — keeps VM DHCP off the home
+- **Tenant networking: VXLAN self-service** (Open vSwitch) — keeps VM DHCP off the home
   LAN without a managed switch.
 - **4 Ceph MONs** (cephadm auto-placed one per host; not the single MON originally
   planned — see [decisions.md](decisions.md) #15); **`osd_memory_target` ~1.5–2 GB.**
@@ -96,4 +96,5 @@ pool, VXLAN MTU, `kvm`/`qemu`), tracked in
 | 2026-06-07 | Consistency/dedup pass: trimmed Parameters and the Phase 1/2 descriptions to brief summaries; replaced the "settled" recap and the Phase 2 open-items list with pointers to [decisions.md](decisions.md) and [project-phase-2.md](project-phase-2.md); fixed the stale "provider-on-its-own-VLAN" tenant-networking item to the VXLAN model. |
 | 2026-06-08 | Marked Phase 2 **Stages 0–2 complete** (the throwaway `common` role is done and idempotent); **Stage 3** (manual controller-side Nova/Neutron) is next. Corrected the Parameters MON count to **4** (cephadm default placement; see [decisions.md](decisions.md) #15), superseding the single-MON note. |
 | 2026-06-09 | Closed the **Nova ephemeral disk backend** open item → **Ceph RBD-backed** ([decisions.md](decisions.md) #31). Added **Cinder** as Phase 2 **Stage 6** (RBD-backed `volumes` pool; [decisions.md](decisions.md) #32); Phase 2 is now staged **0–6**. Updated the Phase 2 description and open-items list accordingly. |
+| 2026-06-12 | Amended **decision #24**: Neutron mechanism driver **Linux bridge → Open vSwitch (OVS)** — RDO 2025.1 Epoxy ships no linuxbridge agent. The VXLAN self-service model (#14) is unchanged; updated the Parameters tenant-networking line accordingly. See [decisions.md](decisions.md) #24/R12 and [project-phase-2-stage-3.md](project-phase-2-stage-3.md). |
 | 2026-06-12 | Marked Phase 2 **Stage 3 Nova controller-side complete** (Cells v2 bootstrapped; `nova-scheduler`/`-conductor` both `up`); **Neutron controller-side is the remaining Stage 3 work.** Resolving it surfaced a RabbitMQ/Erlang version fix — see [decisions.md](decisions.md) #33 and [project-phase-2.md](project-phase-2.md). |

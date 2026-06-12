@@ -15,7 +15,8 @@
    **`[libvirt] images_type = rbd`** backed by the `vms` pool with a per-node libvirt
    secret holding the `client.nova` key (decision #31 — RBD-backed ephemeral; reuses the
    Phase 1 `/etc/ceph` permissions lesson); **NIC names may
-   differ per node** so keep `physical_interface_mappings`/`local_ip` per-host. After the
+   differ per node** so keep the OVS `bridge_mappings`/provider-bridge port and `local_ip`
+   per-host. After the
    role runs, `nova-manage cell_v2 discover_hosts` **once** on the controller (a
    `command` task with `run_once: true` — teaches that not every task runs on every host);
    verify `openstack compute service list` / `network agent list`.

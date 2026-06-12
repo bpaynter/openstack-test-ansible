@@ -30,8 +30,9 @@ servers hear every `DHCPDISCOVER`, both can answer, and a VM (or a real LAN clie
 can get a lease from the wrong server. Disjoint allocation pools prevent duplicate
 IPs but not the cross-answering.
 
-Phase 2 therefore uses **VXLAN self-service networking** with the **Linux bridge**
-mechanism driver:
+Phase 2 therefore uses **VXLAN self-service networking** with the **Open vSwitch (OVS)**
+mechanism driver (originally Linux bridge — RDO 2025.1 ships no linuxbridge agent, so
+decision #24 was amended to OVS; the model below is unchanged):
 
 - VMs live on **tenant networks**, each its own isolated L2 domain, tunneled
   VM-to-VM and VM-to-network-node inside VXLAN-encapsulated UDP that rides over the
@@ -50,8 +51,11 @@ Consequences carried into the steps below:
 
 - `service_plugins = router` is required (the flat-only draft had it empty).
 - ml2: `type_drivers` gains `vxlan`, `tenant_network_types = vxlan`, a `vni_ranges`;
-  the linuxbridge agent sets `enable_vxlan = true` and a **per-host `local_ip`** (each
-  node's own `192.168.1.x` tunnel endpoint) — another per-node inventory variable.
+  the OVS agent sets `tunnel_types = vxlan` and a **per-host `local_ip`** (each node's own
+  `192.168.1.x` tunnel endpoint) — another per-node inventory variable. The flat external
+  net rides an **OVS provider bridge** (`bridge_mappings`), which on a single-NIC node
+  takes over the host's `192.168.1.x` interface — a connectivity-sensitive step handled at
+  Stage 5, not bring-up.
 - The floating-IP pool is carved from `192.168.1.0/24` and must sit **outside** the
   home router's DHCP range and outside the static host IPs (`.130–.133`).
 - **MTU:** VXLAN adds ~50 bytes of header — raise the underlay MTU or set the tenant
@@ -149,9 +153,9 @@ stage has its own file with the detailed step plan and its execution log:
   is too, so the `nova`/`qemu`/`cinder` users must read `/etc/ceph/` files:
   `chown root:<group>` + `chmod 640` + `restorecon`.
 - **Per-node device/NIC names (issue #2)** — NIC names differ across these OptiPlex
-  models just as disk letters did; **never hardcode the interface** in
-  `physical_interface_mappings` or `local_ip` — make them per-host inventory variables.
-  This is the single most likely thing to bite Phase 2.
+  models just as disk letters did; **never hardcode the interface** in the OVS
+  `bridge_mappings`/provider-bridge port or `local_ip` — make them per-host inventory
+  variables. This is the single most likely thing to bite Phase 2.
 - **SELinux** — keep it `enforcing`; check `ausearch -m avc` before reaching for
   permissive.
 - **FQDN consistency** — keep using FQDNs everywhere in the inventory.
@@ -173,4 +177,5 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
 | 2026-06-09 | **Stage 3 started** (controller-side Nova/Neutron prerequisites underway). Logged a troubleshooting episode: while standardizing the catalog/`auth_url` onto FQDNs, `openstack-glance-api` failed to restart with a `conf_read_file` RADOS error whose real cause was a mislabeled `/etc/ceph/ceph.conf` (`user_tmp_t`), fixed with `restorecon -Rv /etc/ceph/` — same class as Phase 1 issue #3 (SELinux labels). Noted a benign residual `glance_api_t`→`mysqld_exec_t` getattr denial on `mariadbd-safe-helper`, left as-is. |
 | 2026-06-12 | **Stage 3 — Nova controller-side complete and verified.** Recorded the full Nova bring-up (DBs/service account/endpoints, FQDN catalog cleanup, `nova.conf` section-by-section, Cells v2 bootstrap) with `nova-scheduler` and `nova-conductor` both `up`. Logged three troubleshooting episodes: the **placement** Apache vhost missing its `Require all granted` block (EL packaging gap; the "no supported versions" error was really a 403 routing problem), and the two-part **RabbitMQ** failure — a boot-ordering race (`epmd` before network-online; fixed with a drop-in) and rabbit 3.9 on an unsupported Erlang 26 that **EPEL had shadowed over the SIG's Erlang 24**, fixed by reinstalling with EPEL excluded and pinning `excludepkgs=erlang*` (decision #33). Neutron controller-side is the remaining Stage 3 work. |
+| 2026-06-12 | **Neutron L2 backend Linux bridge → Open vSwitch (OVS)** (decision #24 amended, R12 added): RDO 2025.1 Epoxy ships no linuxbridge agent, so the networking-model section now names OVS — `tunnel_types = vxlan` + per-host `local_ip`, with the flat external net on an OVS provider bridge (`bridge_mappings`). The VXLAN self-service model (#14) and the Stage 3–6 structure are unchanged; updated the consequences bullet and the NIC-mapping "problems anticipated" note. |
 | 2026-06-12 | **Split this file into per-stage files.** `project-phase-2.md` is now the overview/index — it keeps the cross-cutting design (networking model, learning/Ansible approach), the Phase-2-wide open items and "problems anticipated," and this changelog, plus a new [Stages](#stages) table. Each stage's detailed step plan and execution log moved to `project-phase-2-stage-N.md` (stages 0 and 1 share one file, as they were executed and logged as a unit). No content was dropped; the staged "Planned steps" list and the "Actual work completed" logs were re-homed verbatim into the stage files. |

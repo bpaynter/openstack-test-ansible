@@ -41,7 +41,7 @@ Phase 3 is planned for later. The authoritative phase/stage status lives in
   [decisions.md](decisions.md) unless asked. But if a past decision looks genuinely
   wrong, **say so plainly** rather than silently working around it.
 - **Stick to the established stack:** AlmaLinux 9, OpenStack 2025.1, Ceph Squid via
-  `cephadm`, Linux bridge mechanism driver, VXLAN self-service tenant networking, and
+  `cephadm`, Open vSwitch (OVS) mechanism driver, VXLAN self-service tenant networking, and
   Ansible installed via `uv` (community 13 / `ansible-core` 2.20) — match Ansible docs
   to **version 13**.
 - **Stay consistent with what's already built.** When writing config, follow the Phase 1
@@ -96,3 +96,4 @@ the user can review it.
 | 2026-06-07 | Added the "fresh chat per phase/stage" working practice (rescued from the now-deleted `overall_plan.md`). |
 | 2026-06-08 | Updated status: Phase 2 Stages 0–2 complete (the `common` role is done and idempotent), Stage 3 next. |
 | 2026-06-09 | Added a **Conventions** section; first entry: DB access uses `sudo mysql` (MariaDB unix-socket root), not `mysql -u root -p`. |
+| 2026-06-12 | Updated the established stack: Neutron mechanism driver **Linux bridge → Open vSwitch (OVS)** (RDO 2025.1 ships no linuxbridge agent; decision #24 amended). |

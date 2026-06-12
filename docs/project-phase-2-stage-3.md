@@ -18,13 +18,14 @@ issue #5 lesson).
   cell_v2` cell setup is the one unfamiliar part vs. Phase 1 — read the guide's cell
   section. (novncproxy gives VM console access later.)
 - **Neutron:** `neutron` DB + service user; install neutron server +
-  linuxbridge/l3/dhcp/metadata agents; configure `neutron.conf`
+  OVS/l3/dhcp/metadata agents; configure `neutron.conf`
   (`service_plugins = router`), `ml2_conf.ini` (`type_drivers` incl. `flat`+`vxlan`,
-  `tenant_network_types = vxlan`, `mechanism_drivers = linuxbridge`, `vni_ranges`),
-  `linuxbridge_agent.ini` (`enable_vxlan = true`, `local_ip = 192.168.1.130` on the
-  controller, `l2_population = true`), and the l3/dhcp/metadata agent configs. **Keep these
-  hand-written `.conf` files** — the compute-side configs are nearly identical, which sets
-  up Stage 4.
+  `tenant_network_types = vxlan`, `mechanism_drivers = openvswitch`, `vni_ranges`),
+  `openvswitch_agent.ini` (`[ovs] local_ip = 192.168.1.130` + `bridge_mappings`,
+  `[agent] tunnel_types = vxlan`, `l2_population = true`), and the l3/dhcp/metadata agent
+  configs (`interface_driver = openvswitch`). **Keep these hand-written `.conf` files** —
+  the compute-side configs are nearly identical, which sets up Stage 4. (OVS, not
+  linuxbridge — see the discovery note below and decision #24.)
 
 ## Actual work completed
 
@@ -59,9 +60,26 @@ and granted it `admin` on the `service` project, **verified with `openstack role
 assignment list`** (`admin | neutron@Default | service@Default`, not inherited — the issue
 #5 check); registered the `neutron` **network** service and its three endpoints
 (public/internal/admin), all at `http://controller.lab.internal:9696`. Remaining: install
-the server + linuxbridge/l3/dhcp/metadata agents, write `neutron.conf` /
-`ml2_conf.ini` / `linuxbridge_agent.ini` / the agent configs, fill `nova.conf [neutron]`,
-`neutron-db-manage upgrade`, and start the services.
+the server + OVS/l3/dhcp/metadata agents (see the discovery below), write `neutron.conf`
+(`core_plugin = ml2`, `service_plugins = router`, `transport_url`, `[keystone_authtoken]`,
+the `[nova]` notify-back credentials, `[oslo_concurrency] lock_path` — all backend-agnostic)
+plus `ml2_conf.ini` / `openvswitch_agent.ini` / the agent configs, fill `nova.conf
+[neutron]`, `neutron-db-manage upgrade`, and start the services.
+
+**Discovery — RDO 2025.1 ships no linuxbridge agent; switched to OVS (decision #24
+amended).** The planned `dnf install … openstack-neutron-linuxbridge` failed with `Unable
+to find a match`. `dnf list available 'openstack-neutron*'` showed the Epoxy set ships only
+OVS (`openstack-neutron-openvswitch`), OVN (`-ovn-agent`/`-ovn-metadata-agent`), `macvtap`,
+and `sriov` agents — **no linuxbridge**; `dnf provides '*/neutron-linuxbridge-agent'`
+matched only a path *inside the `openstack-kolla` container-image package*, not an
+installable RPM. Linuxbridge has been deprecated for years and RDO has dropped the packaged
+agent. Chose **OVS** over OVN as the minimal pivot that preserves the VXLAN self-service
+model (#14) and the agent-based plan — only the L2 agent and its config change
+(`openvswitch_agent.ini` instead of `linuxbridge_agent.ini`, plus an OVS provider bridge
+for the flat external net). OVN rejected for Phase 2 as too large a by-hand rewrite (R12);
+it is the Phase 3 Kolla backend. **Lesson:** verify a deprecated driver is still *packaged*
+in the target release before planning a manual install around it. (`ebtables`/`ipset` were
+already satisfied — on EL9 `ebtables` is provided by the installed `iptables-nft`.)
 
 ## Problems hit and fixes
 
