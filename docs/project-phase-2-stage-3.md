@@ -1,8 +1,9 @@
 # Phase 2 · Stage 3 — Controller-side Nova & Neutron (manual, one-time)
 
 > Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — Nova
-> controller-side complete and verified (2026-06-12); **Neutron controller-side is the
-> remaining work** (it fills the `[neutron]` placeholder left in `nova.conf`).
+> controller-side complete and verified (2026-06-12); **Neutron controller-side under way**
+> — prerequisites (DB, service account, endpoints) done; packages + configs next. The
+> Neutron half fills the `[neutron]` placeholder left in `nova.conf`.
 
 This stage is *not* a role, because the Ansible seam is repetition and this isn't
 repeated. Done by hand following the 2025.1 guide, reusing the Phase 1 service-account
@@ -49,6 +50,18 @@ RabbitMQ transport → `nova`). After the three fixes below, `sudo -u nova nova-
 upgrade check` passes and `openstack compute service list` shows **nova-scheduler** and
 **nova-conductor** both `up`. Remaining Stage 3 work is the Neutron controller side
 (which fills the `[neutron]` placeholder).
+
+**Neutron controller-side — in progress.** Prerequisites done and verified (2026-06-12),
+mirroring the Nova/Phase 1 pattern: created the `neutron` database with grants for
+`'neutron'@'localhost'` and `'neutron'@'%'` (the `%` grant matters — neutron connects over
+TCP to `controller.lab.internal`, not the unix socket); created the `neutron` service user
+and granted it `admin` on the `service` project, **verified with `openstack role
+assignment list`** (`admin | neutron@Default | service@Default`, not inherited — the issue
+#5 check); registered the `neutron` **network** service and its three endpoints
+(public/internal/admin), all at `http://controller.lab.internal:9696`. Remaining: install
+the server + linuxbridge/l3/dhcp/metadata agents, write `neutron.conf` /
+`ml2_conf.ini` / `linuxbridge_agent.ini` / the agent configs, fill `nova.conf [neutron]`,
+`neutron-db-manage upgrade`, and start the services.
 
 ## Problems hit and fixes
 
