@@ -235,17 +235,42 @@ already satisfied — on EL9 `ebtables` is provided by the installed `iptables-n
      helper's `HOME`/cache off `/root` (not worth it). Same disposition as the
      `glance→mariadbd` getattr denial (problem 1).
 
-6. **glance-api hit the `conf_read_file` RADOS error *again* (recurrence of problem 1).**
-   During the Neutron bring-up, `openstack-glance-api` was found failed with the same
-   `error calling conf_read_file` — i.e. `/etc/ceph/ceph.conf` had been **re-mislabeled**
-   since the Jun 9 `restorecon`. **Fix (again):** `sudo restorecon -Rv /etc/ceph/` +
-   `systemctl restart openstack-glance-api`; `openstack image list` works. **Why it keeps
-   coming back (working theory):** the controller is a cephadm **`_admin`** host, so
-   cephadm actively maintains `/etc/ceph/ceph.conf` there and rewrites it (on config
-   change / mgr re-run) via tempfile-then-`rename()`; `rename()` **preserves the source
-   label**, so a temp file created in a `user_tmp` context lands a bad label on the live
-   file. A one-off `restorecon` can't hold against a process that re-creates the file.
-   **Follow-up (not yet done):** confirm via `ceph orch host ls` (the `_admin` tag) and
-   the `ceph.conf` mtime/label, then apply a durable fix — leaning toward a small systemd
-   `path` unit that runs `restorecon` whenever `/etc/ceph/ceph.conf` changes (self-heals
-   the label without fighting cephadm). Tracked as an open item.
+6. **glance-api hit the `conf_read_file` RADOS error *again* (recurrence of problem 1) —
+   root-caused to a known Ceph bug and fixed durably with `restorecond`.** During the
+   Neutron bring-up, `openstack-glance-api` was found failed with the same `error calling
+   conf_read_file` — `/etc/ceph/ceph.conf` had been **re-mislabeled** since the Jun 9
+   `restorecon`. **Immediate fix (again):** `sudo restorecon -Rv /etc/ceph/` +
+   `systemctl restart openstack-glance-api`; `openstack image list` works.
+   - **Confirmed root cause:** the controller is the cephadm **`_admin`** host
+     (`ceph orch host ls` shows the `_admin` label on it alone), so cephadm maintains
+     `/etc/ceph/ceph.conf` (and the `client.admin` keyring) there and rewrites it on
+     cluster/reconcile events. `mgr/cephadm/manage_etc_ceph_ceph_conf = false` only governs
+     the *all-hosts* push (which is why the compute nodes have no `ceph.conf`), **not** the
+     `_admin` maintenance. The rewrite uses tempfile-then-`os.rename()`, and `rename()`
+     **preserves the source label** — a temp file created in a `user_tmp` (unconfined-root)
+     context lands `unconfined_u:object_r:user_tmp_t:s0` on the live file, which confined
+     `glance_api_t` can't read. This is a **known Ceph behaviour** —
+     [tracker #9530](https://tracker.ceph.com/issues/9530) ("config push move operation
+     results in a bad selinux context") — inherited by cephadm from ceph-deploy. The file's
+     mtime (Jun 10, not today) confirmed the last rewrite predated the failure, so today's
+     crash was simply the first glance start since. (An *in-place* edit would keep the
+     inode's label; the label flipping proves the file was **replaced**, consistent with
+     `rename()`.)
+   - **Durable fix (done): `restorecond`.** Added `/etc/ceph/ceph.conf` to
+     `/etc/selinux/restorecond.conf` and enabled `restorecond.service` — the SELinux daemon
+     purpose-built for "a file keeps being recreated with the wrong label." It watches the
+     path via inotify and restores its policy context the instant cephadm recreates it, so
+     glance can always read it. This is the OS-native tool *and* the same relabel-after-write
+     remediation Ceph upstream uses for this class
+     ([ceph PR #23278](https://github.com/ceph/ceph/pull/23278)). Recorded as
+     **decision #35** (which also notes the rejected alternatives: a hand-rolled systemd
+     `path` unit — functionally `restorecond`; decoupling glance with a static minimal
+     `ceph.conf` + service-only keyring — the standard production pattern, but extra
+     divergence on a converged node; and dropping the `_admin` label — loses
+     admin-keyring/CLI auto-maintenance).
+   - **Lesson:** when a co-located, confined service reads a cephadm-managed file under
+     enforcing SELinux, expect the `os.rename` mislabel (#9530) and let **`restorecond`**
+     heal it — don't rely on one-off `restorecon`. Most OpenStack+Ceph avoids this entirely
+     by being containerized or by giving OpenStack nodes a static minimal `ceph.conf`; the
+     RPM-RDO + cephadm + enforcing combo on a converged node is the less-trodden path Phase 2
+     deliberately walks.
