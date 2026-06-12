@@ -375,12 +375,30 @@ multicast, which home underlays carry poorly), with controller-side
 (e.g. `1:1000`). Today nothing reads `local_ip` — confirm the pre-Stage-4 state with
 `ip -d link show type vxlan` and `ss -lun | grep 4789` (both empty).
 
-### Stage 3 — controller-side Nova & Neutron (in progress)
+### Stage 3 — controller-side Nova & Neutron (Nova complete, verified 2026-06-12; Neutron in progress)
 
-Controller-side prerequisites are underway (Nova `nova`/`nova_api`/`nova_cell0` DBs and
-the `nova` service account; Keystone catalog/`auth_url` FQDN cleanup). Full Stage 3
-detail will be recorded as the section lands; logged so far is one troubleshooting
-episode.
+**Nova controller-side — complete.** Created the `nova`, `nova_api`, and `nova_cell0`
+databases and the `nova` service account (`admin` on the `service` project), plus the
+three Compute API endpoints (public/internal/admin) at
+`http://controller.lab.internal:8774/v2.1`. Standardized the Keystone catalog and every
+`auth_url` onto the FQDN (`controller` → `controller.lab.internal`) and confirmed
+`openstack endpoint set --url` edits an endpoint in place — no delete/recreate — which
+fixed an `:8884` port typo. Installed
+`openstack-nova-api`/`-conductor`/`-novncproxy`/`-scheduler` and wrote `nova.conf`
+section by section against the live 2025.1 RDO guide (`[DEFAULT]`
+`transport_url`/`my_ip = 192.168.1.130`, `[api_database]`/`[database]`,
+`[keystone_authtoken]` + `[service_user]`, `[placement]`, `[glance] api_servers =
+http://controller.lab.internal:9292`, `[oslo_concurrency] lock_path =
+/var/lib/nova/tmp`, `[vnc]`; the `[neutron]` section is a placeholder until the Neutron
+half lands). Four distinct passwords are in play and were kept straight: `NOVA_DBPASS`,
+the `nova` Keystone password, `RABBIT_PASS`, and `PLACEMENT_PASS`. Bootstrapped Cells v2
+as `sudo -u nova` (never root — avoids root-owned files under the service dirs):
+`nova-manage api_db sync` → `map_cell0` → `create_cell --name=cell1` → `nova-manage db
+sync`, verified with `list_cells` (cell0 on `none:/` → `nova_cell0`; cell1 on the
+RabbitMQ transport → `nova`). After the three fixes below, `sudo -u nova nova-status
+upgrade check` passes and `openstack compute service list` shows **nova-scheduler** and
+**nova-conductor** both `up`. Remaining Stage 3 work is the Neutron controller side
+(which fills the `[neutron]` placeholder).
 
 **Problems hit and fixes (Stage 3):**
 
@@ -413,6 +431,60 @@ episode.
      local-server artifacts. Left unaddressed on this throwaway cluster (no `permissive`,
      no blind `audit2allow`).
 
+2. **nova-scheduler/nova-conductor crashed with "placement service ... does not have any
+   supported versions" — the placement Apache vhost was missing its access grant.** First
+   real use of Placement (another Phase-1-installed-but-never-exercised service): both
+   services logged that the Placement endpoint existed but exposed no supported
+   microversions. `curl http://controller.lab.internal:8778/` returned the **AlmaLinux
+   default Apache test page with a 403**, not a placement JSON payload — so Apache wasn't
+   routing `/` to the placement app at all. Cause: `/etc/httpd/conf.d/00-placement-api.conf`
+   shipped *without* the `<Directory>` / `<Files placement-api>` `Require all granted`
+   access block — a known placement-on-EL packaging gap. **Fix:** added the grant block,
+   `httpd -t`, `systemctl reload httpd`; placement then answered with its version document
+   and the Nova services cleared the check. **Lesson:** a placement "no supported versions"
+   error is usually an Apache routing/permission problem, not a placement-service one —
+   `curl` the endpoint and look at *what* actually answers.
+
+3. **RabbitMQ down, then crashing nova on connect — two stacked faults: a boot-ordering
+   race, and an unsupported RabbitMQ/Erlang pairing that EPEL had silently introduced.**
+   RabbitMQ was the third Phase-1 service exercised for the first time by Nova. Three
+   parts:
+   - **(a) Dead after every reboot — `epmd` bound before the LAN was up.** `rabbitmq-server`
+     failed at boot with `epmd error for host controller: address` (EADDRNOTAVAIL): the
+     Erlang port mapper tries to bind `rabbit@controller` to `192.168.1.130` before
+     NetworkManager has finished bringing the interface up. **Fix:** `systemctl enable
+     NetworkManager-wait-online.service` plus a `systemctl edit rabbitmq-server` drop-in
+     adding `After=network-online.target` / `Wants=network-online.target`. The drop-in
+     lives in `/etc/systemd/system/`, so it survived the package reinstall in (c).
+   - **(b) Service up, but nova connections were accepted, authenticated, then killed.**
+     The client saw `Server unexpectedly closed connection` / `Connection reset by peer`;
+     the rabbit log showed the reader crashing with
+     `{unexpected_message,{'EXIT',#Port,einval}}`. A minimal Python `amqp` loopback test
+     failed identically on **both** `127.0.0.1` and `.130`, ruling out the network path.
+     **Root cause:** RabbitMQ **3.9.21** was running on **Erlang/OTP 26.2.5**, an
+     unsupported pairing — rabbit 3.9 tops out at Erlang 24, and Erlang 26 needs rabbit
+     ≥ 3.12 (per the official compatibility matrix).
+   - **(c) Why Erlang 26 was present, and the fix.** RDO pulls RabbitMQ from the CentOS
+     Messaging SIG repo (`centos-rabbitmq-38`), which *ships a matched Erlang 24*
+     (`24.1.7`, `24.3.4.2`) — but **EPEL also ships Erlang `26.2.5`, and dnf picked it on
+     version number alone**, quietly installing an incompatible Erlang under rabbit 3.9.
+     Two escape routes were ruled out first: removing `centos-release-rabbitmq-38` to take
+     the rabbit-4 track **cascades to remove `centos-release-openstack-epoxy`** (the whole
+     RDO 2025.1 repo set) and was aborted; installing `centos-release-rabbitmq-4`
+     *alongside* `-38` fails on a file conflict (both own
+     `/etc/yum.repos.d/CentOS-Messaging-rabbitmq.repo`). **Fix (clean, RDO-native —
+     decision #33):** reinstall with EPEL out of the transaction so the SIG's Erlang 24
+     wins — `sudo dnf install --disablerepo=epel rabbitmq-server` (pulled
+     `rabbitmq-server 3.9.21` + `erlang 24.3.4.2`, both from `centos-rabbitmq-38`) — then
+     **pin it durably** with `sudo dnf config-manager --setopt=epel.excludepkgs=erlang*
+     --save` so a future `dnf update` can't drag Erlang 26 back in. Recreated the
+     `openstack` vhost user (`add_user` + `set_permissions -p / openstack '.*' '.*' '.*'`);
+     the loopback `amqp` test then printed `OK`, and restarting nova-scheduler/-conductor
+     brought both `up`. **Lesson:** on EL, **EPEL can outrank a CentOS SIG package by
+     version number** and quietly install something the SIG stack can't use — when an RDO
+     component depends on a SIG-pinned version, exclude the conflicting package from EPEL
+     (`excludepkgs=`). Same EPEL-vs-SIG hazard RDO's own guidance warns about.
+
 _Stages 4–6 to be filled in as later chunks execute them._
 
 ---
@@ -431,3 +503,4 @@ _Stages 4–6 to be filled in as later chunks execute them._
 | 2026-06-08 | **Stage 2 complete and verified.** The `common` role renders an inventory-driven `/etc/hosts` to all four nodes (FQDN-canonical column order, `\| sort`ed for idempotence), wired into `site.yml`; idempotence proven (second run all `ok`, no diff). Corrected the earlier (2026-06-04) record that described the template/task as already written — they were actually authored and verified in this session. Fixed `ansible.cfg`: `stdout_callback = yaml` → `result_format = yaml` (the `community.general.yaml` callback was removed in community.general 12.x, bundled in community 13.7). Logged the compute3 outage + cephadm root-SSH episode (restored hardened root key; new decision #30) and the discovery that the cluster runs **4 MONs**, not 1 (decision #15 corrected). |
 | 2026-06-09 | **Closed the Nova ephemeral-disk-backend open item → Ceph RBD-backed** (decision #31): added the RBD libvirt config (`images_type = rbd`, `vms` pool, `client.nova` libvirt secret) to the Stage 4 step and rewrote the backend note from "still open" to "decided." **Added Stage 6 — Cinder (block storage), RBD-backed** (decision #32; gives the deferred Phase 1 `volumes` pool a home): controller-side by-hand install reusing the Glance service-account + RBD-keyring pattern, with the compute side reusing the #31 libvirt secret. Staged plan is now **0–6**; updated the status block, removed the Nova-backend open item, and extended the carried-forward Ceph-permissions note to `cinder`. |
 | 2026-06-09 | **Stage 3 started** (controller-side Nova/Neutron prerequisites underway). Logged a troubleshooting episode: while standardizing the catalog/`auth_url` onto FQDNs, `openstack-glance-api` failed to restart with a `conf_read_file` RADOS error whose real cause was a mislabeled `/etc/ceph/ceph.conf` (`user_tmp_t`), fixed with `restorecon -Rv /etc/ceph/` — same class as Phase 1 issue #3 (SELinux labels). Noted a benign residual `glance_api_t`→`mysqld_exec_t` getattr denial on `mariadbd-safe-helper`, left as-is. |
+| 2026-06-12 | **Stage 3 — Nova controller-side complete and verified.** Recorded the full Nova bring-up (DBs/service account/endpoints, FQDN catalog cleanup, `nova.conf` section-by-section, Cells v2 bootstrap) with `nova-scheduler` and `nova-conductor` both `up`. Logged three troubleshooting episodes: the **placement** Apache vhost missing its `Require all granted` block (EL packaging gap; the "no supported versions" error was really a 403 routing problem), and the two-part **RabbitMQ** failure — a boot-ordering race (`epmd` before network-online; fixed with a drop-in) and rabbit 3.9 on an unsupported Erlang 26 that **EPEL had shadowed over the SIG's Erlang 24**, fixed by reinstalling with EPEL excluded and pinning `excludepkgs=erlang*` (decision #33). Neutron controller-side is the remaining Stage 3 work. |
