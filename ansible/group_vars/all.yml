@@ -1,0 +1,5 @@
+---
+# Non-secret facts shared by every host
+controller_fqdn: controller.lab.internal
+openstack_release: epoxy        # RDO release -> centos-release-openstack-epoxy
+rabbit_user: openstack          # the RabbitMQ vhost user from Stage 3

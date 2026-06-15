@@ -1,0 +1,7 @@
+---
+# Non-secret indirection: friendly names -> vaulted values (see vault.yml).
+rabbit_password:    "{{ vault_rabbit_password }}"
+nova_password:      "{{ vault_nova_password }}"
+placement_password: "{{ vault_placement_password }}"
+neutron_password:   "{{ vault_neutron_password }}"
+ceph_nova_key:      "{{ vault_ceph_nova_key }}"
