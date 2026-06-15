@@ -2777,7 +2777,6 @@ api_servers = http://{{ controller_fqdn }}:9292
 # Authentication type to load (string value)
 # Deprecated group/name - [keystone]/auth_plugin
 #auth_type=<None>
-auth_type = password
 
 # Config Section from which to load plugin specific options (string value)
 #auth_section=<None>
@@ -3405,7 +3404,7 @@ disk_cachemodes = "network=writeback"
 # ploop - <No description provided>
 # default - <No description provided>
 #images_type=default
-images_type = rdb
+images_type = rbd
 
 #
 # LVM Volume Group that is used for VM images, when you specify images_type=lvm.
@@ -3426,7 +3425,7 @@ images_type = rdb
 
 # The RADOS pool in which rbd volumes are stored (string value)
 #images_rbd_pool=rbd
-images_rdb_pool = {{ ceph_vms_pool }}
+images_rbd_pool = {{ ceph_vms_pool }}
 
 # Path to the ceph configuration file to use (string value)
 #images_rbd_ceph_conf =
