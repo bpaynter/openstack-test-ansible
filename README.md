@@ -12,6 +12,13 @@ This repository contains the planning documents and decision records (in `docs/`
 the hand-rolled Ansible project used to build the compute plane (in `ansible/` —
 `ansible.cfg`, `inventory.yml`, `group_vars/`, `host_vars/`, `roles/`).
 
+`scripts/healthcheck.sh` is a read-only, bottom-up smoke test for the controller's
+OpenStack + Ceph control plane (infra → Ceph → Keystone → Glance → Placement → Nova →
+Neutron). Run it on the controller with `admin-openrc` sourced; it exits non-zero on any
+real failure and flags expected-empty results (no hypervisors/networks until Stages 4–5)
+as INFO. Handy as a known-good baseline before Stage 4 and to compare the Phase 3 Kolla
+rebuild against.
+
 ## Documentation
 
 | Document | Description |
