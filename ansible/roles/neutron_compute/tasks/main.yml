@@ -18,7 +18,9 @@
 
 - name: Install the Neutron OVS agent (pulls neutron common + Open vSwitch)
   ansible.builtin.dnf:
-    name: openstack-neutron-openvswitch
+    name: 
+      - openstack-neutron-openvswitch
+      - openstack-selinux
     state: present
   become: true
 

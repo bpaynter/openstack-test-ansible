@@ -37,6 +37,7 @@
   ansible.builtin.dnf:
     name:
       - openstack-nova-compute
+      - openstack-selinux
       - qemu-kvm-block-rbd
       - ceph-common
       - python3-rbd
