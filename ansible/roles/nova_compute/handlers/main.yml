@@ -1,3 +1,9 @@
 #SPDX-License-Identifier: MIT-0
 ---
 # handlers file for roles/nova_compute
+
+- name: Restart nova-compute
+  ansible.builtin.service:
+    name: openstack-nova-compute
+    state: restarted
+  become: true

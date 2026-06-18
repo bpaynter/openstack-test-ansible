@@ -1,3 +1,127 @@
 #SPDX-License-Identifier: MIT-0
 ---
 # tasks file for roles/nova_compute
+
+- name: Assert CPU supports hardware virtualization (Intel VT-x / vmx)
+  block:
+    - name: Count 'vmx' flags in /proc/cpuinfo
+      ansible.builtin.command: grep -c -m vmx /proc/cpuinfo
+      register: vmx_count
+      changed_when: false
+      failed_when: false
+
+    - name: Fail loudly if VT-x is absent (virt_type=kvm requires it)
+      ansible.builtin.assert:
+        that: vmx_count.stdout | int > 0
+        fail_msg: >-
+          No 'vmx' on {{ inventory_hostname }} - Intel VT-x is disabled in BIOS
+          or unsupported. virt_type=kvm cannot work; enable VT-x and retry.
+        success_msg: "VT-x present ({{ vmx_count.stdout }} logical CPUs)."
+
+- name: Enable RDO (OpenStack {{ openstack_release }}) + Ceph Reef client repos
+  ansible.builtin.dnf:
+    name:
+      - "centos-release-openstack-{{ openstack_release }}"
+      - centos-release-ceph-reef
+      - epel-release
+    state: present
+  become: true
+
+- name: Enable the CRB repository (RDO build dependencies)
+  community.general.dnf_config_manager:
+    name: crb
+    state: enabled
+  become: true
+
+- name: Install Nova compute, libvirt/KVM, and Ceph RBD client packages
+  ansible.builtin.dnf:
+    name:
+      - openstack-nova-compute
+      - qemu-kvm-block-rbd
+      - ceph-common
+      - python3-rbd
+    state: present
+  become: true
+
+- name: Ensure libvert is running (required to manage the Ceph secret)
+  ansible.builtin.service:
+    name: libvirtd
+    state: started
+    enabled: true
+  become: true
+
+- name: Ensure /etc/ceph exists
+  ansible.builtin.file:
+    path: /etc/ceph
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Deploy minimal ceph.conf (MON addresses for the RBD client)
+  ansible.builtin.template:
+    src: ceph.conf.j2
+    dest: /etc/ceph/ceph.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Deploy client.nova keyring (nova-compute's own RBD auth)
+  ansible.builtin.template:
+    src: ceph.client.nova.keyring.j2
+    dest: /etc/ceph/ceph.client.nova.keyring
+    owner: root
+    group: nova
+    mode: '0640'
+  become: true
+  no_log: true
+
+- name: Stage the libvirt Ceph secret definition
+  ansible.builtin.template:
+    src: ceph-nova-secret.xml.j2
+    dest: /etc/nova/ceph-nova-secret.xml
+    owner: root
+    group: root
+    mode: '0600'
+  become: true
+
+- name: Check whether the libvirt Ceph secret already holds a value
+  ansible.builtin.command: virsh secret-get-value {{ rbd_secret_uuid }}
+  register: libvirt_secret
+  changed_when: false
+  failed_when: false
+  no_log: true
+  become: true
+
+- name: Define the libvirt Ceph secret
+  ansible.builtin.command: virsh secret-define --file /etc/nova/ceph-nova-secret.xml
+  when: libvirt_secret.rc != 0
+  become: true
+
+- name: Set the libvirt Ceph secret value (from the vault)
+  ansible.builtin.command: >-
+    virsh secret-set-value --secret {{ rbd_secret_uuid }} --base64 {{ ceph_nova_key }}
+  when: libvirt_secret.rc != 0
+  no_log: true
+  become: true
+  notify: Restart nova-compute
+
+- name: Deploy nova.conf
+  ansible.builtin.template:
+    src: nova.conf.j2
+    dest: /etc/nova/nova.conf
+    owner: root
+    group: nova
+    mode: '0640'
+  become: true
+  no_log: true
+  notify: Restart nova-compute
+
+- name: Ensure nova-compute is enabled and running
+  ansible.builtin.service:
+    name: openstack-nova-compute
+    state: started
+    enabled: true
+  become: true
