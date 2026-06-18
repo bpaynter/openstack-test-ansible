@@ -23,7 +23,7 @@ planned**, not dropped).
 
 ## Current status
 
-Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–3 done, Stage 4 next);
+Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–4 done, Stage 5 next);
 Phase 3 is planned for later. The authoritative phase/stage status lives in
 [project-plan.md](project-plan.md#phases).
 
@@ -97,3 +97,4 @@ the user can review it.
 | 2026-06-08 | Updated status: Phase 2 Stages 0–2 complete (the `common` role is done and idempotent), Stage 3 next. |
 | 2026-06-09 | Added a **Conventions** section; first entry: DB access uses `sudo mysql` (MariaDB unix-socket root), not `mysql -u root -p`. |
 | 2026-06-12 | Updated the established stack: Neutron mechanism driver **Linux bridge → Open vSwitch (OVS)** (RDO 2025.1 ships no linuxbridge agent; decision #24 amended). |
+| 2026-06-18 | Updated status: **Phase 2 Stages 0–4 done** (the `nova_compute`/`neutron_compute` roles are complete and idempotent); **Stage 5 next**. |

@@ -4,7 +4,7 @@
 #
 # Run ON THE CONTROLLER (it is the only node with the services, admin-openrc, and
 # the cephadm _admin keyring). Tests bottom-up everything stood up through Phase 2
-# Stage 3, so each layer's check also exercises the ones beneath it:
+# Stage 4, so each layer's check also exercises the ones beneath it:
 #
 #   1. systemd units      6. Glance (image)
 #   2. Ceph               7. Placement
@@ -21,8 +21,11 @@
 #   - Run as your normal login user (NOT root) so the `openstack` CLI uses your
 #     admin creds. Root-only checks (Ceph, MariaDB, RabbitMQ, nova-manage) use
 #     `sudo` and will prompt once; without sudo they are skipped (WARN).
-#   - EXPECTED-EMPTY results (no hypervisors / networks / resource providers) are
-#     reported INFO, not FAIL — those appear only after Stages 4–5.
+#   - Through Stage 4 the compute plane is up, so this now ASSERTS it: 3
+#     nova-compute services up, 3 hypervisors, all compute hosts mapped into a
+#     cell, and an Open vSwitch agent on the controller + each compute. Override
+#     the count with EXPECTED_COMPUTES=N. The only remaining EXPECTED-EMPTY result
+#     is the network list (tenant/provider networks are created in Stage 5).
 #   - Capstone test: reboot the controller, then re-run this. It proves the
 #     RabbitMQ/memcached/glance boot-ordering + SELinux fixes hold on a cold start.
 #
@@ -32,6 +35,7 @@ set -uo pipefail
 
 CONTROLLER_FQDN="${CONTROLLER_FQDN:-controller.lab.internal}"
 OPENRC="${OPENRC:-$HOME/admin-openrc}"
+EXPECTED_COMPUTES="${EXPECTED_COMPUTES:-3}"   # nova-compute / hypervisor / cell-host count
 
 # ---- pretty output ----------------------------------------------------------
 if [[ -t 1 ]]; then
@@ -182,6 +186,11 @@ if [[ $SUDO_OK -eq 1 ]]; then
   cells=$(sudo -u nova nova-manage cell_v2 list_cells 2>/dev/null)
   { grep -q cell0 <<<"$cells" && grep -q cell1 <<<"$cells"; } \
     && ok "cells: cell0 + cell1 present" || no "cells" "expected cell0 and cell1 in list_cells"
+  # every compute host should be mapped into a cell (the discover_hosts step)
+  mapped=$(sudo -u nova nova-manage cell_v2 list_hosts 2>/dev/null | grep -Ec 'compute[0-9]')
+  [[ "$mapped" -ge "$EXPECTED_COMPUTES" ]] \
+    && ok "cell host mappings: $mapped compute host(s) in a cell" \
+    || no "cell host mappings" "$mapped mapped (expected >= $EXPECTED_COMPUTES; run 'nova-manage cell_v2 discover_hosts')"
 else
   wn "nova-manage checks skipped (no sudo)"
 fi
@@ -191,21 +200,35 @@ if [[ $OSC_OK -eq 1 ]]; then
     grep -Eq "${b}.*\bup\b" <<<"$svc" && ok "compute service: ${b} up" \
       || no "compute service: ${b}" "$(grep "$b" <<<"$svc" || echo 'absent / not up')"
   done
-  hv=$(openstack hypervisor list -f value 2>/dev/null)
-  [[ -z "$hv" ]] && nfo "hypervisor list empty — EXPECTED (no compute nodes until Stage 4)" \
-                 || nfo "hypervisors registered: $(grep -c . <<<"$hv")"
+  nc_up=$(grep -Ec "nova-compute.*\bup\b" <<<"$svc")
+  nc_tot=$(grep -c "nova-compute" <<<"$svc")
+  [[ "$nc_up" -ge "$EXPECTED_COMPUTES" ]] \
+    && ok "compute service: nova-compute ($nc_up up)" \
+    || no "compute service: nova-compute" "$nc_up/$nc_tot up (expected >= $EXPECTED_COMPUTES up)"
+  hv_n=$(openstack hypervisor list -f value 2>/dev/null | grep -c .)
+  [[ "$hv_n" -ge "$EXPECTED_COMPUTES" ]] \
+    && ok "hypervisors registered: $hv_n" \
+    || no "hypervisors" "$hv_n registered (expected >= $EXPECTED_COMPUTES)"
 fi
 
 # ---- 9. Neutron (network) ---------------------------------------------------
 hdr "9. Neutron (network)"
 if [[ $OSC_OK -eq 1 ]]; then
   agents=$(openstack network agent list -f value -c "Agent Type" -c Alive 2>/dev/null)
-  for a in "Open vSwitch agent" "L3 agent" "DHCP agent"; do
+  # L3 + DHCP agents live only on the controller (the network node)
+  for a in "L3 agent" "DHCP agent"; do
     line=$(grep -F "$a" <<<"$agents")
     if [[ -z "$line" ]]; then no "agent: $a" "not registered"
     elif grep -qE ':-\)|True' <<<"$line"; then ok "agent: $a (alive)"
     else wn "agent: $a present but not alive" "$line"; fi
   done
+  # Open vSwitch agents: one VTEP per node — controller + each compute
+  ovs_tot=$(grep -Fc "Open vSwitch agent" <<<"$agents")
+  ovs_up=$(grep -F "Open vSwitch agent" <<<"$agents" | grep -Ec ':-\)|True')
+  ovs_exp=$((EXPECTED_COMPUTES + 1))
+  [[ "$ovs_up" -ge "$ovs_exp" ]] \
+    && ok "agent: Open vSwitch ($ovs_up/$ovs_tot alive — controller + computes)" \
+    || no "agent: Open vSwitch" "$ovs_up/$ovs_tot alive (expected >= $ovs_exp: controller + $EXPECTED_COMPUTES computes)"
   check_match "ml2 'router' extension loaded (self-service L3)" '(^|[[:space:]])router([[:space:]]|$)' \
     openstack extension list --network -f value -c Alias
   nets=$(openstack network list -f value 2>/dev/null)

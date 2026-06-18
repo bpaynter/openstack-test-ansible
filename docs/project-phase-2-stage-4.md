@@ -1,6 +1,11 @@
 # Phase 2 · Stage 4 — `nova_compute` and `neutron_compute` Roles
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: planned** (not yet started).
+> Part of **[Phase 2](project-phase-2.md)**. **Status: complete** (verified 2026-06-18).
+> Both roles (`nova_compute`, `neutron_compute`) run idempotently on compute1/2/3:
+> 3 `nova-compute` services `up` and mapped into `cell1` (RBD-backed ephemeral on the
+> `vms` pool), and the OVS agent `Alive`/`UP` on each compute (tunnel-only). SELinux
+> stayed enforcing; `scripts/healthcheck.sh` is clean. Stage 5 (bootstrap the OpenStack
+> objects + first VM) is next.
 
 ## Planned steps
 
@@ -113,4 +118,55 @@ idempotent with a `secret-get-value` guard (`rc != 0` → define + set), so a re
    for a controller one-shot) and re-ran once compute2/3 had reported — all three then mapped
    into `cell1`.
 
-_Neutron compute side (the `neutron_compute` role) — pending._
+### `neutron_compute` role — complete and verified (2026-06-18)
+
+`openstack network agent list` shows an **Open vSwitch agent** on compute1/2/3, all
+`:-)`/`UP` (alongside the controller's L3/DHCP/OVS agents). The agents come up
+**tunnel-only** — no `bridge_mappings`, no provider bridge (the flat external net lives
+only on the network node, #25); attaching a physical NIC is Stage-5 work that doesn't
+touch the computes at all.
+
+**Template derivation.** `neutron.conf.j2` is the controller's `neutron.conf` stripped to
+what the *agent* needs: `[DEFAULT]` keeps only `transport_url` + `auth_strategy`, plus the
+full `[keystone_authtoken]` and `[oslo_concurrency] lock_path`. **Dropped** `core_plugin`,
+`service_plugins`, `notify_nova_on_port_*`, the `[nova]` notify-back section, and the
+`[database] connection` (all neutron-**server**-only) — so `NEUTRON_DBPASS` never reaches a
+compute. `openvswitch_agent.ini.j2` keeps `tunnel_types = vxlan` / `l2_population = true` /
+`[securitygroup]` and sets `local_ip = {{ local_ip }}`, with **`bridge_mappings` removed**.
+Neither template needs a new secret (reuses `rabbit_password` + `neutron_password`).
+
+**`tasks/main.yml`.** Repo-prep (RDO + EPEL + CRB, mirroring nova, minus the Ceph repo) →
+install `openstack-neutron-openvswitch` → ensure the `openvswitch` daemon → flip the
+`os_neutron_dac_override` SELinux boolean (#34) → template `neutron.conf` +
+`openvswitch_agent.ini` (handler-restart on change) → ensure `neutron-openvswitch-agent`.
+The **`plugin.ini` symlink** gotcha from Stage 3 does **not** apply: that was a
+neutron-server problem; the agent unit's `ExecStart` reads `neutron.conf` +
+`openvswitch_agent.ini` directly. Folded both compute roles into one
+`hosts: compute` play in `site.yml` (nova_compute → neutron_compute).
+
+#### Problems hit and fixes
+
+1. **`os_neutron_dac_override` "not defined in persistent policy".** The
+   `ansible.posix.seboolean` task failed on the computes: the `os_`-prefixed boolean is
+   shipped by **`openstack-selinux`**, which wasn't installed (it's the policy module that
+   *defines* the boolean — the controller had it from Phase 1, the fresh computes did not).
+   Diagnosed live with **`ansible-console`** (`rpm -q openstack-selinux` → not installed;
+   `getsebool` → boolean unknown). **Fix:** add `openstack-selinux` to the package list in
+   **both** compute roles; once its module loads, the boolean exists and the `seboolean`
+   task sets it. **Lesson:** the `os_*` Neutron/Nova SELinux booleans aren't in the base
+   policy — the service node must install `openstack-selinux` before flipping them.
+
+**Residual (benign, left as-is):** `ausearch -m avc` on the computes shows only the
+one-shot `neutron_t → cache_home_t { create }` denial (the OVS agent's privsep helper
+poking at `/root/.cache`) — the exact denial decision #34 leaves **denied on purpose**.
+Agents are `UP`; nothing functional needs it.
+
+#### Verification (2026-06-18)
+- `ansible-playbook site.yml` re-run → **all hosts `changed=0`** (both roles idempotent;
+  `virsh secret` + `seboolean` + templates all no-op on the second pass).
+- `openstack compute service list` → 3 × `nova-compute` `up`; `nova-manage cell_v2
+  list_hosts` → compute1/2/3 in `cell1`.
+- `openstack network agent list` → OVS agent `:-)`/`UP` on all three computes.
+- `ausearch -m avc` → only the known-benign `cache_home_t` denial.
+- `scripts/healthcheck.sh` → clean (updated this stage to assert 3 hypervisors / 3
+  nova-compute / cell mappings / controller+compute OVS agents).
