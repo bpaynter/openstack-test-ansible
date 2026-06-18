@@ -4,10 +4,11 @@
   roles:
     - common
 
-- name: Nova compute plane
+- name: Compute plane (Nova + Neutron)
   hosts: compute
   roles:
     - nova_compute
+    - neutron_compute
 
 - name: Discover new compute hosts into cell_v2
   hosts: controller.lab.internal

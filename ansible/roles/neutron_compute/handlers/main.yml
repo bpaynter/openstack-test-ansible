@@ -1,3 +1,9 @@
 #SPDX-License-Identifier: MIT-0
 ---
 # handlers file for roles/neutron_compute
+
+- name: Restart neutron OVS agent
+  ansible.builtin.service:
+    name: neutron-openvswitch-agent
+    state: restarted
+  become: true
