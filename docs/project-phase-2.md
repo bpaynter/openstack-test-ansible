@@ -138,10 +138,11 @@ stage has its own file with the detailed step plan and its execution log:
 ## Open items for Phase 2 implementation
 
 - ~~**Tenant subnet CIDR**~~ — **resolved (Stage 5):** `10.0.0.0/24` ([decisions.md](decisions.md) #39).
-- ~~**Floating-IP allocation pool**~~ — **resolved (Stage 5):** `192.168.1.160–.191` (a
-  `/27`-sized allocation pool restricting the provider `/24`), confirmed clear of the home
-  DHCP range (`.10–.49`), the router static IPs (`.199–.225`), and the host IPs
-  (`.130–.133`) ([decisions.md](decisions.md) #39).
+- ~~**Floating-IP allocation pool**~~ — **resolved (Stage 5):** `192.168.1.160–.191`, a
+  32-address allocation pool *restricting* the provider `/24` (the `/27` is only shorthand
+  for the range `.160–.191` — **not** a separate subnet; the provider subnet stays `/24`),
+  confirmed clear of the home DHCP range (`.10–.49`), the router static IPs (`.199–.225`),
+  and the host IPs (`.130–.133`) ([decisions.md](decisions.md) #39).
 - ~~**MTU handling** for VXLAN~~ — **resolved (Stage 5):** tenant network **MTU 1450**
   (underlay stays 1500) ([decisions.md](decisions.md) #39).
 - ~~**`kvm` vs `qemu`**~~ — **resolved (Stage 4):** `vmx` confirmed on all three computes →
