@@ -1,3 +1,11 @@
 #SPDX-License-Identifier: MIT-0
 ---
 # defaults file for roles/nova_compute
+
+# Ceph RBD backend for Nova ephemeral disks (decision #31)
+ceph_vms_pool: vms
+
+# libvirt secret UUID that will hold the client.nova Ceph key.
+# Same on every compute node - it's an identifier, not a secret; the key
+# value comes from the vault. Generate once with `uuidgen`.
+rbd_secret_uuid: "9f2ad49e-3945-487d-a68c-8768d42ba202"
