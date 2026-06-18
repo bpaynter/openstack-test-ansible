@@ -1,6 +1,7 @@
 # Phase 2 · Stage 5 — Bootstrap the OpenStack Objects + Test
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: planned** (not yet started).
+> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — the three networking
+> parameters are settled ([decisions.md](decisions.md) #39); object creation is next.
 
 ## Planned steps
 
@@ -17,4 +18,30 @@
 
 ## Actual work completed
 
-_Not yet started._
+### Networking parameters settled (2026-06-18)
+
+The three open Stage-5 networking choices are decided and recorded as
+[decision #39](decisions.md):
+
+| Item | Value |
+|---|---|
+| Tenant network | VXLAN, subnet `10.0.0.0/24`, **MTU 1450** |
+| Provider/external network | **flat** on physnet `provider`, subnet `192.168.1.0/24`, **DHCP off**, gateway `192.168.1.1` |
+| Floating-IP pool | `192.168.1.160 – .191` (a `/27`-sized allocation pool on the provider `/24` — 32 usable floating IPs) |
+
+The floating-IP pool is a *restricting* **allocation pool** on the `/24` provider subnet, not
+a separate `/27` subnet: keeping the subnet `/24` leaves the home router as the gateway and
+makes `.160`/`.191` ordinary host addresses (all 32 usable). Confirmed clear of the live
+router's DHCP range (`.10–.49`), its static IPs (`.199–.225`), and the cluster host IPs
+(`.130–.133`). The CirrOS image is already in Glance (`qcow2`, `active`, RBD-backed in the
+`images` pool), so no image upload is needed.
+
+_Object creation not yet started._
+
+---
+
+## Changelog
+
+| Date | Change |
+|---|---|
+| 2026-06-18 | Stage 5 started. Settled the three networking parameters (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and recorded them as [decisions.md](decisions.md) #39; noted CirrOS already present in Glance. |

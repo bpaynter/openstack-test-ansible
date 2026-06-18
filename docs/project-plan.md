@@ -73,9 +73,9 @@ All earlier planning questions (OS, OpenStack release, Ceph method/version, doma
 static IPs, RDO repo, name resolution, firewall, SELinux) are **settled** — each is
 recorded with its rationale in [decisions.md](decisions.md).
 
-The remaining open items are the Stage-5 networking choices (tenant CIDR, floating-IP
-pool, VXLAN MTU); `kvm`/`qemu` and `ansible-vault` were resolved in Stage 4
-([decisions.md](decisions.md) #36/#37). Tracked in
+No planning open items remain. The Stage-5 networking choices (tenant CIDR, floating-IP
+pool, VXLAN MTU) were resolved at the start of Stage 5 ([decisions.md](decisions.md) #39),
+as `kvm`/`qemu` and `ansible-vault` were in Stage 4 (#36/#37). Tracked in
 [project-phase-2.md](project-phase-2.md#open-items-for-phase-2-implementation).
 
 ---
@@ -102,3 +102,4 @@ pool, VXLAN MTU); `kvm`/`qemu` and `ansible-vault` were resolved in Stage 4
 | 2026-06-12 | Marked Phase 2 **Stage 3 complete** — Neutron controller-side is up (server + L3/DHCP/metadata + OVS agent), filling the `nova.conf [neutron]` placeholder; Stage 4 (compute roles) is next. Added [decisions.md](decisions.md) #34 (the `os_neutron_dac_override` SELinux boolean) and #35 (`restorecond` for the recurring glance/`ceph.conf` relabel — root-caused to [Ceph #9530](https://tracker.ceph.com/issues/9530), now resolved). See [project-phase-2-stage-3.md](project-phase-2-stage-3.md). |
 | 2026-06-12 | Marked Phase 2 **Stage 3 Nova controller-side complete** (Cells v2 bootstrapped; `nova-scheduler`/`-conductor` both `up`); **Neutron controller-side is the remaining Stage 3 work.** Resolving it surfaced a RabbitMQ/Erlang version fix — see [decisions.md](decisions.md) #33 and [project-phase-2.md](project-phase-2.md). |
 | 2026-06-18 | Marked Phase 2 **Stage 4 complete** — the `nova_compute`/`neutron_compute` roles on compute1/2/3 (3 `nova-compute` up + cell-mapped, RBD-backed ephemeral; OVS agents up tunnel-only). Closed the **`kvm`/`qemu`** and **`ansible-vault`** open items ([decisions.md](decisions.md) #36/#37; #38 records the client.nova/ceph.conf delivery). Stage 5 (bootstrap + first VM) is next. See [project-phase-2-stage-4.md](project-phase-2-stage-4.md). |
+| 2026-06-18 | Stage 5 started: recorded the last three planning open items (tenant CIDR, floating-IP pool, VXLAN MTU) as [decisions.md](decisions.md) #39 — **no planning open items remain**. |

@@ -137,11 +137,13 @@ stage has its own file with the detailed step plan and its execution log:
 
 ## Open items for Phase 2 implementation
 
-- **Tenant subnet CIDR** (e.g. `10.0.0.0/24`).
-- **Floating-IP allocation pool** carved from `192.168.1.0/24`, confirmed against the
-  home router's actual DHCP range and the static host IPs.
-- **MTU handling** for VXLAN (raise underlay MTU vs. tenant network MTU 1450) — still open;
-  belongs with the tenant-network creation in Stage 5.
+- ~~**Tenant subnet CIDR**~~ — **resolved (Stage 5):** `10.0.0.0/24` ([decisions.md](decisions.md) #39).
+- ~~**Floating-IP allocation pool**~~ — **resolved (Stage 5):** `192.168.1.160–.191` (a
+  `/27`-sized allocation pool restricting the provider `/24`), confirmed clear of the home
+  DHCP range (`.10–.49`), the router static IPs (`.199–.225`), and the host IPs
+  (`.130–.133`) ([decisions.md](decisions.md) #39).
+- ~~**MTU handling** for VXLAN~~ — **resolved (Stage 5):** tenant network **MTU 1450**
+  (underlay stays 1500) ([decisions.md](decisions.md) #39).
 - ~~**`kvm` vs `qemu`**~~ — **resolved (Stage 4):** `vmx` confirmed on all three computes →
   `virt_type = kvm`, asserted per-node by the `nova_compute` role ([decisions.md](decisions.md) #36).
 - ~~**`ansible-vault` secret handling**~~ — **resolved (Stage 4):** vars/vault split scoped to
@@ -186,4 +188,5 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-12 | **Stage 3 complete** (controller-side Nova **and** Neutron): recorded the full OVS-based Neutron bring-up (packages, `neutron.conf`/`ml2_conf.ini`/`openvswitch_agent.ini`/agent configs, `nova.conf [neutron]` fill, empty `br-provider`, DB migration, services) with the L3/DHCP/OVS agents `up`; logged the `plugin.ini`-vs-`ovn.ini` symlink, the `os_neutron_dac_override` SELinux boolean (decision #34), a benign one-shot `cache_home_t` denial, the recurring glance/`ceph.conf` relabel fixed durably with `restorecond` (decision #35, root-caused to Ceph #9530), and a **memcached `network-online` boot-ordering fix** (same class as the RabbitMQ `epmd` race). Stages table + status updated; Stage 4 is next. |
 | 2026-06-12 | **Neutron L2 backend Linux bridge → Open vSwitch (OVS)** (decision #24 amended, R12 added): RDO 2025.1 Epoxy ships no linuxbridge agent, so the networking-model section now names OVS — `tunnel_types = vxlan` + per-host `local_ip`, with the flat external net on an OVS provider bridge (`bridge_mappings`). The VXLAN self-service model (#14) and the Stage 3–6 structure are unchanged; updated the consequences bullet and the NIC-mapping "problems anticipated" note. |
 | 2026-06-12 | **Split this file into per-stage files.** `project-phase-2.md` is now the overview/index — it keeps the cross-cutting design (networking model, learning/Ansible approach), the Phase-2-wide open items and "problems anticipated," and this changelog, plus a new [Stages](#stages) table. Each stage's detailed step plan and execution log moved to `project-phase-2-stage-N.md` (stages 0 and 1 share one file, as they were executed and logged as a unit). No content was dropped; the staged "Planned steps" list and the "Actual work completed" logs were re-homed verbatim into the stage files. |
+| 2026-06-18 | **Stage 5 started** — recorded the three Stage-5 networking parameters as [decisions.md](decisions.md) #39 (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and closed the matching Phase-2 open items. Floating-IP pool confirmed clear of the live router's DHCP (`.10–.49`) and static (`.199–.225`) ranges. |
 | 2026-06-18 | **Stage 4 complete** — the `nova_compute` and `neutron_compute` roles run idempotently on compute1/2/3: 3 `nova-compute` `up` and cell-mapped (RBD-backed ephemeral, `vms` pool), OVS agents `up` tunnel-only. Added decisions **#36** (kvm/VT-x), **#37** (vault layout), **#38** (client.nova/ceph.conf delivery); logged the role builds + five nova problems + the `openstack-selinux` neutron fix in [project-phase-2-stage-4.md](project-phase-2-stage-4.md). Closed the **kvm/qemu** and **ansible-vault** open items (MTU stays open → Stage 5). Updated `scripts/healthcheck.sh` to assert the compute plane (3 hypervisors / nova-compute / cell mappings / controller+compute OVS agents). Stages table + status updated; **Stage 5 is next**. |
