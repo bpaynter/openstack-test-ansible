@@ -34,6 +34,13 @@ Phase 3 is planned for later. The authoritative phase/stage status lives in
   handing over copy-paste playbooks (principles 1–3).
 - **Pace the work section by section.** The user drives the tempo — deliver
   implementation steps one section at a time, not as a single dump, unless asked.
+- **The user authors the files; you navigate.** Give the user the content and the
+  line-by-line reasoning, and let *them* create/edit and commit the repo's working files
+  (roles, templates, vars, playbooks) — that hands-on pass is the point (principle 3).
+  Don't write those files for the user unless explicitly asked to. The exception is the
+  **docs**: keeping the repository current (below) is the assistant's job, so doc updates
+  are authored and committed directly. After the user pushes a file, verify it (read it
+  back) rather than assuming it's correct.
 - **A fresh chat per phase/stage.** The user typically starts a new chat for each
   implementation stage rather than carrying long context forward, so leave each stage's
   state captured in the repo (see "Keep the repository current" below) for the next one.
@@ -98,3 +105,4 @@ the user can review it.
 | 2026-06-09 | Added a **Conventions** section; first entry: DB access uses `sudo mysql` (MariaDB unix-socket root), not `mysql -u root -p`. |
 | 2026-06-12 | Updated the established stack: Neutron mechanism driver **Linux bridge → Open vSwitch (OVS)** (RDO 2025.1 ships no linuxbridge agent; decision #24 amended). |
 | 2026-06-18 | Updated status: **Phase 2 Stages 0–4 done** (the `nova_compute`/`neutron_compute` roles are complete and idempotent); **Stage 5 next**. |
+| 2026-06-18 | Added a **"How to help"** bullet: the **user authors the working files** (roles/templates/vars/playbooks) with the assistant navigating; the assistant commits **docs** directly and verifies user-pushed files. |
