@@ -3,3 +3,19 @@
   hosts: all
   roles:
     - common
+
+- name: Nova compute plane
+  hosts: compute
+  roles:
+    - nova_compute
+
+- name: Discover new compute hosts into cell_v2
+  hosts: controller.lab.internal
+  gather_facts: false
+  tasks:
+    - name: Discover new compute hosts (cell_v2)
+      ansible.builtin.command: nova-manage cell_v2 discover_hosts --verbose
+      become: true
+      become_user: nova
+      register: cell_discover
+      changed_when: "'Creating host mapping' in cell_discover.stdout"

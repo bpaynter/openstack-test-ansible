@@ -57,6 +57,7 @@
 # Defines which driver to use for controlling virtualization. For more
 # information, refer to the documentation. (string value)
 #compute_driver=libvirt.LibvirtDriver
+compute_driver=libvirt.LibvirtDriver
 
 #
 # Allow destination machine to match source for resize. Useful when
@@ -581,6 +582,7 @@ my_ip = {{ local_ip }}
 # The top-level directory for maintaining Nova's state. For more information,
 # refer to the documentation. (string value)
 #state_path=/var/lib/nova
+state_path=/var/lib/nova
 
 #
 # This option allows setting an alternate timeout value for RPC calls

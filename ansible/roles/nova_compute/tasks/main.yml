@@ -5,7 +5,7 @@
 - name: Assert CPU supports hardware virtualization (Intel VT-x / vmx)
   block:
     - name: Count 'vmx' flags in /proc/cpuinfo
-      ansible.builtin.command: grep -c -m vmx /proc/cpuinfo
+      ansible.builtin.command: grep -c -w vmx /proc/cpuinfo
       register: vmx_count
       changed_when: false
       failed_when: false
@@ -43,12 +43,24 @@
     state: present
   become: true
 
-- name: Ensure libvert is running (required to manage the Ceph secret)
+# - name: Ensure libvirt is running (required to manage the Ceph secret)
+#   ansible.builtin.service:
+#     name: libvirtd
+#     state: started
+#     enabled: true
+#   become: true
+
+- name: Ensure modular libvirt daemon sockets are enabled (EL9 has no monolithic libvirtd)
   ansible.builtin.service:
-    name: libvirtd
+    name: "{{ item }}"
     state: started
     enabled: true
   become: true
+  loop:
+    - virtqemud.socket      # qemu domains — nova-compute connects here
+    - virtsecretd.socket    # secret driver — our virsh secret-* / RBD auth
+    - virtnodedevd.socket   # host device enumeration (nova)
+    - virtstoraged.socket   # storage driver (nova)
 
 - name: Ensure /etc/ceph exists
   ansible.builtin.file:
