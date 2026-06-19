@@ -39,6 +39,7 @@
       - openstack-nova-compute
       - openstack-selinux
       - qemu-kvm-block-rbd
+      - qemu-kvm-device-display-virtio-gpu
       - ceph-common
       - python3-rbd
     state: present
