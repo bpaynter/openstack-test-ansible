@@ -4,11 +4,11 @@
 #
 # Run ON THE CONTROLLER (it is the only node with the services, admin-openrc, and
 # the cephadm _admin keyring). Tests bottom-up everything stood up through Phase 2
-# Stage 4, so each layer's check also exercises the ones beneath it:
+# Stage 5, so each layer's check also exercises the ones beneath it:
 #
-#   1. systemd units      6. Glance (image)
-#   2. Ceph               7. Placement
-#   3. Databases          8. Nova (compute)
+#   1. systemd units      6. Glance (image)        10. Stage 5 objects
+#   2. Ceph               7. Placement                 (networks / router /
+#   3. Databases          8. Nova (compute)            VXLAN overlay / VM)
 #   4. RabbitMQ           9. Neutron (network)
 #   5. Keystone (identity)
 #
@@ -21,11 +21,15 @@
 #   - Run as your normal login user (NOT root) so the `openstack` CLI uses your
 #     admin creds. Root-only checks (Ceph, MariaDB, RabbitMQ, nova-manage) use
 #     `sudo` and will prompt once; without sudo they are skipped (WARN).
-#   - Through Stage 4 the compute plane is up, so this now ASSERTS it: 3
-#     nova-compute services up, 3 hypervisors, all compute hosts mapped into a
-#     cell, and an Open vSwitch agent on the controller + each compute. Override
-#     the count with EXPECTED_COMPUTES=N. The only remaining EXPECTED-EMPTY result
-#     is the network list (tenant/provider networks are created in Stage 5).
+#   - The compute plane is up (Stage 4): 3 nova-compute services up, 3
+#     hypervisors, all compute hosts mapped into a cell, and an Open vSwitch
+#     agent on the controller + each compute. Override the count with
+#     EXPECTED_COMPUTES=N.
+#   - Stage 5 objects are now ASSERTED (section 10): the flat provider/external
+#     network, the self-service VXLAN tenant-net (MTU 1450), router1 with an
+#     external gateway, and the VXLAN tunnel mesh on br-tun (the l2population
+#     fix). The CirrOS test VM is informational (transient). External floating-IP
+#     reachability is added once the controller NIC is attached to br-provider.
 #   - Capstone test: reboot the controller, then re-run this. It proves the
 #     RabbitMQ/memcached/glance boot-ordering + SELinux fixes hold on a cold start.
 #
@@ -231,11 +235,60 @@ if [[ $OSC_OK -eq 1 ]]; then
     || no "agent: Open vSwitch" "$ovs_up/$ovs_tot alive (expected >= $ovs_exp: controller + $EXPECTED_COMPUTES computes)"
   check_match "ml2 'router' extension loaded (self-service L3)" '(^|[[:space:]])router([[:space:]]|$)' \
     openstack extension list --network -f value -c Alias
-  nets=$(openstack network list -f value 2>/dev/null)
-  [[ -z "$nets" ]] && nfo "network list empty — EXPECTED (networks are created in Stage 5)" \
-                   || nfo "networks defined: $(grep -c . <<<"$nets")"
+  nets=$(openstack network list -f value -c Name 2>/dev/null)
+  nfo "networks: $(grep -c . <<<"$nets") defined (asserted individually in section 10)"
 else
   wn "Neutron checks skipped (no creds)"
+fi
+
+# ---- 10. Stage 5 objects (networks / router / VXLAN overlay / VM) -----------
+hdr "10. Stage 5 objects (networks / router / overlay)"
+if [[ $OSC_OK -eq 1 ]]; then
+  # provider/external network — flat, external
+  if ptype=$(openstack network show provider -f value -c provider:network_type 2>/dev/null); then
+    [[ "$ptype" == flat ]] && ok "provider network (flat)" \
+      || no "provider network type" "got '$ptype' (expected flat)"
+    pext=$(openstack network show provider -f value -c router:external 2>/dev/null)
+    grep -qiE 'external|true' <<<"$pext" && ok "provider network is external" \
+      || no "provider network not external" "router:external=$pext"
+  else
+    no "provider network" "not found — has bootstrap.yml been applied?"
+  fi
+  # tenant self-service VXLAN network — MTU 1450
+  if ttype=$(openstack network show tenant-net -f value -c provider:network_type 2>/dev/null); then
+    [[ "$ttype" == vxlan ]] && ok "tenant-net (vxlan)" \
+      || no "tenant-net type" "got '$ttype' (expected vxlan)"
+    tmtu=$(openstack network show tenant-net -f value -c mtu 2>/dev/null)
+    [[ "$tmtu" == 1450 ]] && ok "tenant-net MTU 1450" \
+      || wn "tenant-net MTU" "got '$tmtu' (expected 1450)"
+  else
+    no "tenant-net" "not found"
+  fi
+  # router with an external gateway onto the provider net
+  gw=$(openstack router show router1 -f value -c external_gateway_info 2>/dev/null)
+  if [[ -n "$gw" && "$gw" != None ]]; then ok "router1 present with external gateway"
+  else no "router1 external gateway" "router1 missing or no external gateway set"; fi
+  # CirrOS test VM — transient, informational only
+  vms=$(openstack server list -f value -c Name -c Status 2>/dev/null)
+  [[ -z "$vms" ]] && nfo "no instances (the CirrOS test VM is optional/transient)" \
+                  || nfo "instances: $(printf '%s' "$vms" | tr '\n' '|')"
+else
+  wn "Stage 5 object checks skipped (no creds)"
+fi
+# VXLAN overlay data-plane (the l2population fix): br-tun must carry tunnel ports
+if [[ $SUDO_OK -eq 1 ]]; then
+  tun=$(sudo ovs-vsctl list-ports br-tun 2>/dev/null | grep -c '^vxlan-')
+  [[ "$tun" -ge 1 ]] \
+    && ok "overlay: $tun VXLAN tunnel port(s) on br-tun" \
+    || no "overlay tunnels" "no vxlan-* ports on br-tun — l2population missing from ml2 mechanism_drivers?"
+  if sudo grep -qE '^[[:space:]]*mechanism_drivers[[:space:]]*=.*l2population' \
+       /etc/neutron/plugins/ml2/ml2_conf.ini 2>/dev/null; then
+    ok "ml2 mechanism_drivers includes l2population"
+  else
+    no "ml2 l2population" "not in mechanism_drivers (agents' l2_population=true builds no tunnels)"
+  fi
+else
+  wn "overlay (br-tun) checks skipped (no sudo)"
 fi
 
 # ---- summary ----------------------------------------------------------------

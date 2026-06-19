@@ -13,7 +13,10 @@ controller keeps its Phase 1 services and Phase 2 adds to it.
 > bring-up (Cells v2; server + L3/DHCP/metadata + the **OVS** agent all `up`), and the
 > **`nova_compute` / `neutron_compute` roles** on compute1/2/3 (3 `nova-compute` `up` and
 > cell-mapped, RBD-backed ephemeral; OVS agents `up` tunnel-only). **Stage 5 (bootstrap
-> the OpenStack objects + first VM) is next**; Stage 6 (Cinder) follows. Each stage's
+> the OpenStack objects + first VM) is in progress** — all networks/router/flavor/keypair/
+> security-group are created and a CirrOS VM boots and is reachable on the overlay (DHCP +
+> metadata + key SSH); only the connectivity-sensitive provider-NIC attach + floating-IP
+> external SSH remain. Stage 6 (Cinder) follows. Each stage's
 > detailed step plan and execution log lives in its own `project-phase-2-stage-N.md`
 > file — see the [Stages](#stages) table.
 
@@ -132,7 +135,7 @@ stage has its own file with the detailed step plan and its execution log:
 | 2 | Throwaway `common` role (learn the mechanics) | ✅ complete | [project-phase-2-stage-2.md](project-phase-2-stage-2.md) |
 | 3 | Controller-side Nova & Neutron (manual, one-time) | ✅ complete | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
 | 4 | `nova_compute` / `neutron_compute` roles (the loop on compute1/2/3) | ✅ complete | [project-phase-2-stage-4.md](project-phase-2-stage-4.md) |
-| 5 | Bootstrap the OpenStack objects + test | ⬜ planned | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
+| 5 | Bootstrap the OpenStack objects + test | 🔄 in progress (objects + VM up; NIC attach pending) | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
 | 6 | Cinder (block storage), RBD-backed | ⬜ planned | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
 
 ## Open items for Phase 2 implementation

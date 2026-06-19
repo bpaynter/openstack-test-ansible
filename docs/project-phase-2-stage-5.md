@@ -147,8 +147,28 @@ an absolute path. The instance itself is booted via the **CLI**, not `openstack.
    boolean — `setsebool -P os_dnsmasq_dac_override on` (decision #40) — the vendor-intended fix,
    same philosophy as #34. `dnsmasq` then listens on `:67`/`:53` and the VM leases `10.0.0.181`.
 
-_Internal overlay proven. Next: attach the controller NIC to `br-provider` (connectivity-sensitive)
-+ assign a floating IP for external SSH._
+**Overlay proven end-to-end (no NIC attach).** From the controller, inside the tenant network's
+namespace (`sudo ip netns exec qdhcp-<net> …`), both `ping` and **key-based SSH** to the VM's
+`10.0.0.181` succeed — the namespace sits on the overlay (`10.0.0.2`/`10.0.0.1`), so it reaches the
+VM directly. Key SSH working confirms cloud-init pulled `lab-key` from metadata. This is east-west
+only; reaching the VM from the **home LAN** still needs the provider-NIC attach + a floating IP.
+
+The full bootstrap lives in **`ansible/bootstrap.yml`** (all `openstack.cloud` tasks, idempotent;
+the `openstack.cloud.server` task is left commented with the `owner_seen` note — the VM is booted by
+CLI). `scripts/healthcheck.sh` was extended (section 10) to assert the provider/tenant networks,
+`router1`'s external gateway, and the `br-tun` VXLAN tunnel mesh (so the l2population regression
+can't recur silently); the test VM is informational.
+
+### Remaining — provider-NIC attach (deferred to a console session)
+
+The last step is connectivity-sensitive: put the controller's single NIC (**`eno1`**, holding
+`192.168.1.130/24`, default route via `.1`, NM-managed; `NetworkManager-ovs` not installed) into
+the empty `br-provider` and move `.130` onto the bridge, giving the flat provider net its physical
+uplink so floating IPs reach the home LAN. **Deferred until physical/console access** is available
+(no console at planning time, only a `5123→.130:22` port-forward that rides the very IP being
+moved) — to be done with a `systemd-run --on-active` auto-revert net, then made persistent and
+reboot-tested. Until then external floating-IP SSH is the only Stage 5 item outstanding; everything
+east-west is proven.
 
 ---
 
@@ -161,3 +181,4 @@ _Internal overlay proven. Next: attach the controller NIC to `br-provider` (conn
 | 2026-06-19 | Completed the network topology: `provider-subnet` (`.160–.191` pool, DHCP off), `tenant-net`/`tenant-subnet` (self-service VXLAN VNI 60, MTU 1450, `10.0.0.0/24`, DHCP on), and `router1` (external gw on `provider`, SNAT, internal interface on `10.0.0.1`). All idempotent; no host-NIC change yet. |
 | 2026-06-19 | Added the VM prerequisites (`m1.tiny`, `lab-key`, `lab-ssh-icmp`) and booted **`cirros1`** (via CLI). Debugged the overlay end-to-end: (1) `openstack.cloud.server` 2.5.0 vs openstacksdk 4.4.0 `owner_seen` → boot via CLI; (2) `hw_video_model=virtio` unsupported on EL9 modular qemu → per-image `vga`; (3) **no VXLAN tunnels** — `l2population` missing from `mechanism_drivers` → added it (server half of l2pop); (4) **`dnsmasq` SELinux `dac_override`** → `os_dnsmasq_dac_override` boolean ([decisions.md](decisions.md) #40). VM now leases `10.0.0.181` and reaches metadata. Corrected the Stage 3 `mechanism_drivers` record. Fixed earlier Stage 5 log dates (all this session = 06-19). |
 | 2026-06-19 | Resolved the video-model fix **cluster-wide** ([decisions.md](decisions.md) #41): `qemu-kvm-device-display-virtio-gpu` added to the `nova_compute` role and applied to all computes, so nova's `virtio` default works for any image (the per-image `vga` is now redundant). |
+| 2026-06-19 | Verified the overlay end-to-end: `ping` + **key SSH** to `10.0.0.181` from inside the tenant `qdhcp` namespace (proves DHCP + metadata key-injection). Committed `ansible/bootstrap.yml`. Extended `scripts/healthcheck.sh` (section 10) to assert the provider/tenant networks, `router1`'s external gateway, and the `br-tun` VXLAN tunnel mesh. Documented the deferred provider-NIC attach (`eno1`→`br-provider`, console session). Updated status across README / project-instructions / project-phase-2. |

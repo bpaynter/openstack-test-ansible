@@ -14,10 +14,12 @@ the hand-rolled Ansible project used to build the compute plane (in `ansible/` �
 
 `scripts/healthcheck.sh` is a read-only, bottom-up smoke test for the controller's
 OpenStack + Ceph control plane (infra → Ceph → Keystone → Glance → Placement → Nova →
-Neutron). Run it on the controller with `admin-openrc` sourced; it exits non-zero on any
-real failure and flags expected-empty results (no hypervisors/networks until Stages 4–5)
-as INFO. Handy as a known-good baseline before Stage 4 and to compare the Phase 3 Kolla
-rebuild against.
+Neutron → Stage 5 objects). Run it on the controller with `admin-openrc` sourced; it exits
+non-zero on any real failure. It asserts the compute plane (Stage 4) and the Stage 5 objects
+— the provider/external network, the self-service VXLAN `tenant-net` (MTU 1450), `router1`
+with an external gateway, and the VXLAN tunnel mesh on `br-tun` (the l2population fix); the
+CirrOS test VM is informational. Handy as a known-good baseline and to compare the Phase 3
+Kolla rebuild against.
 
 ## Documentation
 
