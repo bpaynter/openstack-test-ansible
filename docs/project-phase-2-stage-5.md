@@ -72,7 +72,25 @@ Ansible as `openstack.cloud 2.5.0`) — a different style from the file-driven S
    `openstacksdk==4.4.0` (the RDO Epoxy-matched version already proven against this cloud by
    the system CLI). See decision #27.
 
-_Provider subnet + tenant network/subnet + router not yet created._
+### Network topology — provider / tenant / router (2026-06-18)
+
+The full self-service topology is built (all tasks in `ansible/bootstrap.yml`, all idempotent):
+
+| Object | Type | Key attributes |
+|---|---|---|
+| `provider` / `provider-subnet` | flat external | `192.168.1.0/24`, **DHCP off**, gw `192.168.1.1`, allocation pool `.160–.191` (decision #39) |
+| `tenant-net` / `tenant-subnet` | self-service VXLAN | auto VNI 60, **MTU 1450**, `10.0.0.0/24`, **DHCP on**, gw `10.0.0.1`, DNS `1.1.1.1`/`8.8.8.8` |
+| `router1` | Neutron router | external gw on `provider` (SNAT on, gw port `192.168.1.191`), internal interface on `tenant-subnet` (`10.0.0.1`) |
+
+`tenant-net` is created **self-service** (no `provider_*` attributes), so Neutron allocates the
+VXLAN VNI from `vni_ranges = 1:1000`; the provider net pins `flat`/physnet `provider` because
+it maps to real hardware (`bridge_mappings = provider:br-provider`). The router's gateway port
+consumed `.191` from the floating pool (31 floating IPs remain). **No host-NIC change yet** —
+`br-provider` stays empty, so the router's external port and any floating IPs are valid objects
+but not yet *reachable*; the connectivity-sensitive NIC attach is still pending. Internal
+routing (VM ↔ `10.0.0.1` ↔ DHCP) is live.
+
+_Flavor / keypair / security group / VM not yet created._
 
 ---
 
@@ -82,3 +100,4 @@ _Provider subnet + tenant network/subnet + router not yet created._
 |---|---|
 | 2026-06-18 | Stage 5 started. Settled the three networking parameters (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and recorded them as [decisions.md](decisions.md) #39; noted CirrOS already present in Glance. |
 | 2026-06-18 | Stood up the API bootstrap harness (`clouds.yaml` cloud `lab`; `ansible/bootstrap.yml` on `localhost`) and created the **provider/external network** (flat, physnet `provider`, `router:external`, `ACTIVE`). Logged two `openstacksdk` gotchas (must live in the uv tool env; pin `==4.4.0` because 4.16.0 drops `openstack.version`) — folded into the corrected install procedure in [decisions.md](decisions.md) #27. |
+| 2026-06-18 | Completed the network topology: `provider-subnet` (`.160–.191` pool, DHCP off), `tenant-net`/`tenant-subnet` (self-service VXLAN VNI 60, MTU 1450, `10.0.0.0/24`, DHCP on), and `router1` (external gw on `provider`, SNAT, internal interface on `10.0.0.1`). All idempotent; no host-NIC change yet. |
