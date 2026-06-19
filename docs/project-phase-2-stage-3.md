@@ -71,7 +71,10 @@ dependency. Only EPEL pull was `python3-logutils` (benign).
 `service_plugins = router`, `transport_url`, `[keystone_authtoken]`, the `[nova]`
 notify-back credentials so Neutron can fire `network-vif-plugged`, `[oslo_concurrency]
 lock_path`); `ml2_conf.ini` (`type_drivers = flat,vxlan`, `tenant_network_types = vxlan`,
-`mechanism_drivers = openvswitch`, `extension_drivers = port_security`,
+`mechanism_drivers = openvswitch` *(corrected to `openvswitch,l2population` in Stage 5 — the
+`l2population` driver was missing, so the agents' `l2_population = true` built no VXLAN tunnels
+and tenant DHCP failed; see [project-phase-2-stage-5.md](project-phase-2-stage-5.md))*,
+`extension_drivers = port_security`,
 `flat_networks = provider`, `vni_ranges = 1:1000`); `openvswitch_agent.ini`
 (`[ovs] local_ip = 192.168.1.130` + `bridge_mappings = provider:br-provider`,
 `[agent] tunnel_types = vxlan`/`l2_population = true`,

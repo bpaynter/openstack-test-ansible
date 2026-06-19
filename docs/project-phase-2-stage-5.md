@@ -1,7 +1,9 @@
 # Phase 2 · Stage 5 — Bootstrap the OpenStack Objects + Test
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — the three networking
-> parameters are settled ([decisions.md](decisions.md) #39); object creation is next.
+> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — all OpenStack objects
+> created; a CirrOS VM boots and is reachable on the overlay (DHCP + metadata working).
+> Remaining: attach the controller NIC to `br-provider` (connectivity-sensitive) + floating-IP
+> external SSH.
 
 ## Planned steps
 
@@ -18,7 +20,7 @@
 
 ## Actual work completed
 
-### Networking parameters settled (2026-06-18)
+### Networking parameters settled (2026-06-19)
 
 The three open Stage-5 networking choices are decided and recorded as
 [decision #39](decisions.md):
@@ -36,7 +38,7 @@ router's DHCP range (`.10–.49`), its static IPs (`.199–.225`), and the clust
 (`.130–.133`). The CirrOS image is already in Glance (`qcow2`, `active`, RBD-backed in the
 `images` pool), so no image upload is needed.
 
-### Bootstrap harness + provider network (2026-06-18)
+### Bootstrap harness + provider network (2026-06-19)
 
 Stage 5 is **API-driven** Ansible via the `openstack.cloud` collection (bundled in the uv
 Ansible as `openstack.cloud 2.5.0`) — a different style from the file-driven Stages 2–4.
@@ -72,7 +74,7 @@ Ansible as `openstack.cloud 2.5.0`) — a different style from the file-driven S
    `openstacksdk==4.4.0` (the RDO Epoxy-matched version already proven against this cloud by
    the system CLI). See decision #27.
 
-### Network topology — provider / tenant / router (2026-06-18)
+### Network topology — provider / tenant / router (2026-06-19)
 
 The full self-service topology is built (all tasks in `ansible/bootstrap.yml`, all idempotent):
 
@@ -90,7 +92,62 @@ consumed `.191` from the floating pool (31 floating IPs remain). **No host-NIC c
 but not yet *reachable*; the connectivity-sensitive NIC attach is still pending. Internal
 routing (VM ↔ `10.0.0.1` ↔ DHCP) is live.
 
-_Flavor / keypair / security group / VM not yet created._
+### First VM (`cirros1`) + the overlay debugging saga (2026-06-19)
+
+A CirrOS instance now boots on `tenant-net` and is fully functional on the overlay:
+`10.0.0.181` **leased via DHCP**, default route via the router (`10.0.0.1`), and the
+**metadata service reachable** (`ec2` datasource → `instance-id i-00000003`,
+`local-hostname cirros1.novalocal`). This proves the compute plane + VXLAN overlay + DHCP +
+metadata end-to-end — all east-west, sealed inside the overlay, with **no host-NIC change**.
+
+**VM prerequisites** (in `bootstrap.yml`): `m1.tiny` flavor (1 vCPU / 512 MB / 1 GB),
+`lab-key` keypair, and `lab-ssh-icmp` security group (ingress SSH + ICMP; egress open by
+default). Gotcha: `openstack.cloud.keypair`'s `public_key_file` does **not** expand `~` — use
+an absolute path. The instance itself is booted via the **CLI**, not `openstack.cloud.server`
+(problem 1).
+
+#### Problems hit and fixes
+
+1. **`openstack.cloud.server` (2.5.0) is incompatible with `openstacksdk 4.4.0`** — fails with
+   `'Image' object has no attribute 'owner_seen'`. A version squeeze: 4.16.0 breaks every module
+   (`openstack.version`), 4.4.0 fixes those but breaks the *server* module; the infra modules are
+   all fine on 4.4.0. **Fix:** boot the (transient, test) VM with `openstack server create` — same
+   proven SDK, different code path, and what the plan called for anyway. **Not a dealbreaker for
+   Ansible-driven VM booting:** a `command:`-wrapped CLI call always works, and the declarative
+   module can be revived later by finding the openstacksdk version 2.5.0 wants (a mid-4.x with
+   `owner_seen` but pre-4.16) or bumping the collection. Deferred as a side quest.
+2. **VM won't build — `domain configuration does not support video model 'virtio'`.** Nova's
+   2025.1 default video model is `virtio`, but EL9's **modular qemu** splits display devices into
+   subpackages and the computes have only std VGA (in `qemu-kvm-core`), not `virtio-gpu`. **Fix
+   (immediate, per-image):** `openstack image set cirros --property hw_video_model=vga`. The
+   cluster-wide alternative (install `qemu-kvm-device-display-virtio-gpu` on the computes via the
+   role, so nova's `virtio` default works for *every* image) is **still open** — see open items.
+   Same modular-qemu family as the Stage 4 modular-libvirt socket issue.
+3. **No VXLAN tunnels → DHCP never reaches the VM.** Both `br-tun` bridges had **zero** `vxlan-*`
+   ports, so the VM's `DHCPDISCOVER` on compute2 had no path to the DHCP agent on the controller
+   (the VM fell back to IPv4LL). **Root cause:** the agents run `l2_population = true` (they wait
+   for the L2pop mechanism driver to push remote-VTEP info and build tunnels on demand), but the
+   controller's `ml2_conf.ini` had `mechanism_drivers = openvswitch` — **missing the `l2population`
+   driver** that does the pushing. The agent half was present everywhere; the **server half was
+   never enabled**. **Fix (controller-only):** `mechanism_drivers = openvswitch,l2population`, then
+   restart `neutron-server` + all OVS agents so they resync and build the mesh (verified
+   `vxlan-c0a80184` controller→compute2, `vxlan-c0a80182` compute2→controller). `mechanism_drivers`
+   is an ML2/`neutron-server` setting — it lives **only** on the controller (computes run only the
+   OVS agent, which reads `neutron.conf`/`openvswitch_agent.ini`, never `ml2_conf.ini`). Stage 3
+   config record corrected.
+4. **DHCP agent can't spawn `dnsmasq` — SELinux `dac_override` denial (decision #40).** With
+   tunnels up, the VM still got no lease: the agent built the `qdhcp` namespace, tap, and IPs but
+   **no `dnsmasq` ran** (`cannot open or create lease file … Permission denied`). `ausearch` showed
+   `avc: denied { dac_override } … comm="dnsmasq" … dnsmasq_t`: `dnsmasq` runs as root and needs
+   `CAP_DAC_OVERRIDE` to write the `neutron:neutron`-owned `0644` lease file, but the `dnsmasq_t`
+   domain isn't granted it (labels/ownership were all correct — not a relabel/chown issue). Same
+   *capability* as #34 but a different *domain* (`dnsmasq_t`, not `neutron_t`), so the
+   `os_neutron_dac_override` boolean didn't cover it. **Fix:** `openstack-selinux` ships a sibling
+   boolean — `setsebool -P os_dnsmasq_dac_override on` (decision #40) — the vendor-intended fix,
+   same philosophy as #34. `dnsmasq` then listens on `:67`/`:53` and the VM leases `10.0.0.181`.
+
+_Internal overlay proven. Next: attach the controller NIC to `br-provider` (connectivity-sensitive)
++ assign a floating IP for external SSH._
 
 ---
 
@@ -98,6 +155,7 @@ _Flavor / keypair / security group / VM not yet created._
 
 | Date | Change |
 |---|---|
-| 2026-06-18 | Stage 5 started. Settled the three networking parameters (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and recorded them as [decisions.md](decisions.md) #39; noted CirrOS already present in Glance. |
-| 2026-06-18 | Stood up the API bootstrap harness (`clouds.yaml` cloud `lab`; `ansible/bootstrap.yml` on `localhost`) and created the **provider/external network** (flat, physnet `provider`, `router:external`, `ACTIVE`). Logged two `openstacksdk` gotchas (must live in the uv tool env; pin `==4.4.0` because 4.16.0 drops `openstack.version`) — folded into the corrected install procedure in [decisions.md](decisions.md) #27. |
-| 2026-06-18 | Completed the network topology: `provider-subnet` (`.160–.191` pool, DHCP off), `tenant-net`/`tenant-subnet` (self-service VXLAN VNI 60, MTU 1450, `10.0.0.0/24`, DHCP on), and `router1` (external gw on `provider`, SNAT, internal interface on `10.0.0.1`). All idempotent; no host-NIC change yet. |
+| 2026-06-19 | Stage 5 started. Settled the three networking parameters (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and recorded them as [decisions.md](decisions.md) #39; noted CirrOS already present in Glance. |
+| 2026-06-19 | Stood up the API bootstrap harness (`clouds.yaml` cloud `lab`; `ansible/bootstrap.yml` on `localhost`) and created the **provider/external network** (flat, physnet `provider`, `router:external`, `ACTIVE`). Logged two `openstacksdk` gotchas (must live in the uv tool env; pin `==4.4.0` because 4.16.0 drops `openstack.version`) — folded into the corrected install procedure in [decisions.md](decisions.md) #27. |
+| 2026-06-19 | Completed the network topology: `provider-subnet` (`.160–.191` pool, DHCP off), `tenant-net`/`tenant-subnet` (self-service VXLAN VNI 60, MTU 1450, `10.0.0.0/24`, DHCP on), and `router1` (external gw on `provider`, SNAT, internal interface on `10.0.0.1`). All idempotent; no host-NIC change yet. |
+| 2026-06-19 | Added the VM prerequisites (`m1.tiny`, `lab-key`, `lab-ssh-icmp`) and booted **`cirros1`** (via CLI). Debugged the overlay end-to-end: (1) `openstack.cloud.server` 2.5.0 vs openstacksdk 4.4.0 `owner_seen` → boot via CLI; (2) `hw_video_model=virtio` unsupported on EL9 modular qemu → per-image `vga`; (3) **no VXLAN tunnels** — `l2population` missing from `mechanism_drivers` → added it (server half of l2pop); (4) **`dnsmasq` SELinux `dac_override`** → `os_dnsmasq_dac_override` boolean ([decisions.md](decisions.md) #40). VM now leases `10.0.0.181` and reaches metadata. Corrected the Stage 3 `mechanism_drivers` record. Fixed earlier Stage 5 log dates (all this session = 06-19). |
