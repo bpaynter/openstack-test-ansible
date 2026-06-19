@@ -1,0 +1,121 @@
+---
+# Stage 5 — bootstrap the OpenStack objects via the API (openstack.cloud).
+# Runs entirely on localhost (the controller) against Keystone; no SSH, no become.
+
+- name: Bootstrap OpenStack objects (Stage 5)
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    os_cloud: lab
+  tasks:
+    - name: Provider/external network (flat, physnet 'provider')
+      openstack.cloud.network:
+        cloud: "{{ os_cloud }}"
+        name: provider
+        external: true
+        provider_network_type: flat
+        provider_physical_network: provider
+        state: present
+        
+    - name: Provider subnet (no DHCP; floating-IP pool 192.268.1.160-.191)
+      openstack.cloud.subnet:
+        cloud: "{{ os_cloud }}"
+        name: provider-subnet
+        network_name: provider
+        cidr: 192.168.1.0/24
+        gateway_ip: 192.168.1.1
+        enable_dhcp: false
+        allocation_pool_start: 192.168.1.160
+        allocation_pool_end: 192.168.1.191
+        state: present
+
+    - name: Tenant network (self-service VXLAN, MTU 1450)
+      openstack.cloud.network:
+        cloud: "{{ os_cloud }}"
+        name: tenant-net
+        mtu: 1450
+        state: present
+
+    - name: Tenant subnet (10.0.0.0/24, DHCP on)
+      openstack.cloud.subnet:
+        cloud: "{{ os_cloud }}"
+        name: tenant-subnet
+        network_name: tenant-net
+        cidr: 10.0.0.0/24
+        gateway_ip: 10.0.0.1
+        enable_dhcp: true
+        dns_nameservers:
+          - 1.1.1.1
+          - 8.8.8.8
+        state: present
+
+    - name: Neutron router (external gw = provider, internal = tenant-subnet)
+      openstack.cloud.router:
+        cloud: "{{ os_cloud }}"
+        name: router1
+        network: provider
+        interfaces:
+          - tenant-subnet
+        state: present
+
+    - name: Small flavor for CirrOS
+      openstack.cloud.compute_flavor:
+        cloud: "{{ os_cloud }}"
+        name: m1.tiny
+        ram: 512
+        vcpus: 1
+        disk: 1
+        state: present
+
+    - name: Keypair for SSH accesss
+      openstack.cloud.keypair:
+        cloud: "{{ os_cloud }}"
+        name: lab-key
+        public_key_file: "/home/bpaynter/.ssh/id_ed25519.pub"
+        state: present
+
+    - name: Security group allowing SSH + ICMP
+      openstack.cloud.security_group:
+        cloud: "{{ os_cloud }}"
+        name: lab-ssh-icmp
+        description: Inbound SSH and ICMP for lab VMs
+        state: present
+
+    - name: Allow inbound SSH (22/tcp)
+      openstack.cloud.security_group_rule:
+        cloud: "{{ os_cloud }}"
+        security_group: lab-ssh-icmp
+        direction: ingress
+        ethertype: IPv4
+        protocol: tcp
+        port_range_min: 22
+        port_range_max: 22
+        remote_ip_prefix: 0.0.0.0/0
+        state: present
+
+    - name: Allow inbound ICMP
+      openstack.cloud.security_group_rule:
+        cloud: "{{ os_cloud }}"
+        security_group: lab-ssh-icmp
+        direction: ingress
+        ethertype: IPv4
+        protocol: icmp
+        remote_ip_prefix: 0.0.0.0/0
+        state: present
+
+    # CirrOS test VM is booted via the CLI, not openstack.cloud.server:
+    # collection 2.5.0's server module is incompatible with openstacksdk 4.4.0
+    # ('Image' object has no attribute 'owner_seen'). See docs/project-phase-2-stage-5.md.
+    # - name: Boot CirrOS test instance on the tenant network
+    #   openstack.cloud.server:
+    #     cloud: "{{ os_cloud }}"
+    #     name: cirros1
+    #     image: cirros
+    #     flavor: m1.tiny
+    #     key_name: lab-key
+    #     security_groups:
+    #       - lab-ssh-icmp
+    #     network: tenant-net
+    #     auto_ip: false
+    #     state: present
