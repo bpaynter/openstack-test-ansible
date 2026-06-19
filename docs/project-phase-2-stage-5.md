@@ -119,10 +119,11 @@ an absolute path. The instance itself is booted via the **CLI**, not `openstack.
 2. **VM won't build — `domain configuration does not support video model 'virtio'`.** Nova's
    2025.1 default video model is `virtio`, but EL9's **modular qemu** splits display devices into
    subpackages and the computes have only std VGA (in `qemu-kvm-core`), not `virtio-gpu`. **Fix
-   (immediate, per-image):** `openstack image set cirros --property hw_video_model=vga`. The
-   cluster-wide alternative (install `qemu-kvm-device-display-virtio-gpu` on the computes via the
-   role, so nova's `virtio` default works for *every* image) is **still open** — see open items.
-   Same modular-qemu family as the Stage 4 modular-libvirt socket issue.
+   (immediate, per-image):** `openstack image set cirros --property hw_video_model=vga`.
+   **Resolved cluster-wide (decision #41):** added `qemu-kvm-device-display-virtio-gpu` to the
+   `nova_compute` role and re-applied across the computes, so nova's `virtio` default now works
+   for *any* image; the per-image `vga` property is now redundant but harmless. Same modular-qemu
+   family as the Stage 4 modular-libvirt socket issue.
 3. **No VXLAN tunnels → DHCP never reaches the VM.** Both `br-tun` bridges had **zero** `vxlan-*`
    ports, so the VM's `DHCPDISCOVER` on compute2 had no path to the DHCP agent on the controller
    (the VM fell back to IPv4LL). **Root cause:** the agents run `l2_population = true` (they wait
@@ -159,3 +160,4 @@ _Internal overlay proven. Next: attach the controller NIC to `br-provider` (conn
 | 2026-06-19 | Stood up the API bootstrap harness (`clouds.yaml` cloud `lab`; `ansible/bootstrap.yml` on `localhost`) and created the **provider/external network** (flat, physnet `provider`, `router:external`, `ACTIVE`). Logged two `openstacksdk` gotchas (must live in the uv tool env; pin `==4.4.0` because 4.16.0 drops `openstack.version`) — folded into the corrected install procedure in [decisions.md](decisions.md) #27. |
 | 2026-06-19 | Completed the network topology: `provider-subnet` (`.160–.191` pool, DHCP off), `tenant-net`/`tenant-subnet` (self-service VXLAN VNI 60, MTU 1450, `10.0.0.0/24`, DHCP on), and `router1` (external gw on `provider`, SNAT, internal interface on `10.0.0.1`). All idempotent; no host-NIC change yet. |
 | 2026-06-19 | Added the VM prerequisites (`m1.tiny`, `lab-key`, `lab-ssh-icmp`) and booted **`cirros1`** (via CLI). Debugged the overlay end-to-end: (1) `openstack.cloud.server` 2.5.0 vs openstacksdk 4.4.0 `owner_seen` → boot via CLI; (2) `hw_video_model=virtio` unsupported on EL9 modular qemu → per-image `vga`; (3) **no VXLAN tunnels** — `l2population` missing from `mechanism_drivers` → added it (server half of l2pop); (4) **`dnsmasq` SELinux `dac_override`** → `os_dnsmasq_dac_override` boolean ([decisions.md](decisions.md) #40). VM now leases `10.0.0.181` and reaches metadata. Corrected the Stage 3 `mechanism_drivers` record. Fixed earlier Stage 5 log dates (all this session = 06-19). |
+| 2026-06-19 | Resolved the video-model fix **cluster-wide** ([decisions.md](decisions.md) #41): `qemu-kvm-device-display-virtio-gpu` added to the `nova_compute` role and applied to all computes, so nova's `virtio` default works for any image (the per-image `vga` is now redundant). |
