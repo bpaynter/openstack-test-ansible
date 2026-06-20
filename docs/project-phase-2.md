@@ -152,6 +152,25 @@ stage has its own file with the detailed step plan and its execution log:
 - ~~**`ansible-vault` secret handling**~~ — **resolved (Stage 4):** vars/vault split scoped to
   the `compute` group; five secrets, DB/metadata secrets kept off the computes
   ([decisions.md](decisions.md) #37).
+- **Live migration — possible but NOT enabled (deferred).** The RBD-backed ephemeral backend
+  ([decisions.md](decisions.md) #31) provides the shared instance storage that makes live
+  migration practical, but it is **not configured**. Enabling it requires:
+  1. **libvirt live-migration transport** on the computes — EL9 modular libvirt needs the
+     migration path opened (the `virtproxyd`/TCP socket or SSH transport) plus the
+     `nova.conf [libvirt] live_migration_*` settings. The Stage 4 `nova_compute` role sets up
+     libvirt for *running* guests only, not for *migrating* them.
+  2. A **migration-safe CPU model** — the compute CPUs are **heterogeneous** (i7-8700 /
+     i7-10700 / i7-7700), so Nova's default `cpu_mode = host-model` blocks migration to an older
+     CPU. Needs `[libvirt] cpu_mode = custom` with a baseline `cpu_model` every host supports
+     (all three are Skylake-derived, e.g. `Skylake-Client`), set **before** guests boot.
+  3. Mind **RAM headroom** — evacuating a host consolidates its VMs onto the remaining 16 GB
+     nodes (a known tight constraint).
+
+  Until enabled, a host reboot stops its VMs (restart with `openstack server start`); the
+  rolling-reboot playbook (`ansible/update.yml`) reboots without evacuating. Suggested order if
+  pursued: set `cpu_mode` + redeploy → configure the transport → prove a manual
+  `openstack server migrate --live` → then add an evacuate step to `update.yml`. Record as a
+  decision when done.
 
 ## Problems anticipated (Phase 1 lessons carried forward)
 
@@ -194,3 +213,4 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-18 | **Stage 5 started** — recorded the three Stage-5 networking parameters as [decisions.md](decisions.md) #39 (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and closed the matching Phase-2 open items. Floating-IP pool confirmed clear of the live router's DHCP (`.10–.49`) and static (`.199–.225`) ranges. |
 | 2026-06-18 | **Stage 4 complete** — the `nova_compute` and `neutron_compute` roles run idempotently on compute1/2/3: 3 `nova-compute` `up` and cell-mapped (RBD-backed ephemeral, `vms` pool), OVS agents `up` tunnel-only. Added decisions **#36** (kvm/VT-x), **#37** (vault layout), **#38** (client.nova/ceph.conf delivery); logged the role builds + five nova problems + the `openstack-selinux` neutron fix in [project-phase-2-stage-4.md](project-phase-2-stage-4.md). Closed the **kvm/qemu** and **ansible-vault** open items (MTU stays open → Stage 5). Updated `scripts/healthcheck.sh` to assert the compute plane (3 hypervisors / nova-compute / cell mappings / controller+compute OVS agents). Stages table + status updated; **Stage 5 is next**. |
 | 2026-06-19 | **Stage 5 complete** — provider/tenant networks + `router1` (via `ansible/bootstrap.yml`, `openstack.cloud`), a CirrOS VM on the VXLAN overlay, and external reachability via a floating IP after attaching the controller's `eno1` to `br-provider` (persisted; reboot-tested). Added decisions **#39** (network params), **#40** (`os_dnsmasq_dac_override`), **#41** (cluster-wide `virtio-gpu`), **#42** (NIC attach + persistence); extended `healthcheck.sh` (section 10). Full debugging log (l2population, dnsmasq SELinux, video model, openstacksdk pinning) in [project-phase-2-stage-5.md](project-phase-2-stage-5.md). **Stage 6 (Cinder) is next.** |
+| 2026-06-19 | Recorded **live migration as a deferred capability** — possible via the RBD shared-storage backend (#31) but **not enabled**; documented what it needs (libvirt migration transport + `cpu_mode=custom` baseline for the heterogeneous compute CPUs + RAM headroom) as a Phase 2 open item, and added the caveat to decision #31. |
