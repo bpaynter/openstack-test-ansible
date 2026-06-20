@@ -1,0 +1,55 @@
+---
+# update.yml - rolling package update + reboot across the cluster.
+#   cd ansible && ansible-playbook update.yml --ask-vault-pass --ask-become-pass
+#
+# Ansible runs ON the controller, so it CANNOT reboot the controller (that would
+# kill this run). This updates the controller's packages but you reboot it
+# MANUALLY afterward (no OSDs there -> only a brief MON/control-plane bounce).
+# The compute/OSD nodes are rolled one at a time so Ceph data stays available
+# (3x replication, host failure domain = one host down at a time).
+
+- name: Pause Ceph out-marking + update the controller (no reboot here)
+  hosts: controller.lab.internal
+  gather_facts: false
+  become: true
+  tasks:
+    - name: ceph osd set noout         # don't rebalanve for a brief reboot
+      ansible.builtin.command: ceph osd set noout
+      changed_when: true
+    - name: Update controller packages (Erlang pinned, decision #33)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        exclude: erlang*
+
+- name: Rolling update + reboot of the compute/OSD nodes
+  hosts: compute
+  serial: 1
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Update packages (Erlang pinned, decision #33)
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        exclude: erlang*
+    - name: Reboot and wait for the node to come back
+      ansible.builtin.reboot:
+        reboot_timeout: 900
+    - name: Wait for Ceph HEALTH_OK before moving to the next host
+      ansible.builtin.command: ceph health
+      delegate_to: controller.lab.internal    # only the controller has the admin keyring
+      register: ceph_health
+      until: "'HEALTH_OK' in ceph_health.stdout"
+      retries: 30                        # Up to ~5 min per host
+      delay: 10
+      changed_when: false
+
+- name: Resume Ceph out-marking
+  hosts: controller.lab.internal
+  gather_facts: false
+  become: true
+  tasks:
+    - name: ceph osd unset noout
+      ansible.builtin.command: ceph osd unset noout
+      changed_when: true
