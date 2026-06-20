@@ -12,11 +12,10 @@ controller keeps its Phase 1 services and Phase 2 adds to it.
 > node + inventory, the throwaway `common` role, the controller-side Nova & Neutron
 > bring-up (Cells v2; server + L3/DHCP/metadata + the **OVS** agent all `up`), and the
 > **`nova_compute` / `neutron_compute` roles** on compute1/2/3 (3 `nova-compute` `up` and
-> cell-mapped, RBD-backed ephemeral; OVS agents `up` tunnel-only). **Stage 5 (bootstrap
-> the OpenStack objects + first VM) is in progress** — all networks/router/flavor/keypair/
-> security-group are created and a CirrOS VM boots and is reachable on the overlay (DHCP +
-> metadata + key SSH); only the connectivity-sensitive provider-NIC attach + floating-IP
-> external SSH remain. Stage 6 (Cinder) follows. Each stage's
+> cell-mapped, RBD-backed ephemeral; OVS agents `up` tunnel-only). **Stage 5 (bootstrap the
+> OpenStack objects + first VM) is complete** — the provider/tenant networks + router, a CirrOS
+> VM on the VXLAN overlay, and external reachability via a floating IP (the controller's NIC is
+> attached to `br-provider`, persisting across reboot). **Stage 6 (Cinder) is next.** Each stage's
 > detailed step plan and execution log lives in its own `project-phase-2-stage-N.md`
 > file — see the [Stages](#stages) table.
 
@@ -135,7 +134,7 @@ stage has its own file with the detailed step plan and its execution log:
 | 2 | Throwaway `common` role (learn the mechanics) | ✅ complete | [project-phase-2-stage-2.md](project-phase-2-stage-2.md) |
 | 3 | Controller-side Nova & Neutron (manual, one-time) | ✅ complete | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
 | 4 | `nova_compute` / `neutron_compute` roles (the loop on compute1/2/3) | ✅ complete | [project-phase-2-stage-4.md](project-phase-2-stage-4.md) |
-| 5 | Bootstrap the OpenStack objects + test | 🔄 in progress (objects + VM up; NIC attach pending) | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
+| 5 | Bootstrap the OpenStack objects + test | ✅ complete | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
 | 6 | Cinder (block storage), RBD-backed | ⬜ planned | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
 
 ## Open items for Phase 2 implementation
@@ -194,3 +193,4 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-12 | **Split this file into per-stage files.** `project-phase-2.md` is now the overview/index — it keeps the cross-cutting design (networking model, learning/Ansible approach), the Phase-2-wide open items and "problems anticipated," and this changelog, plus a new [Stages](#stages) table. Each stage's detailed step plan and execution log moved to `project-phase-2-stage-N.md` (stages 0 and 1 share one file, as they were executed and logged as a unit). No content was dropped; the staged "Planned steps" list and the "Actual work completed" logs were re-homed verbatim into the stage files. |
 | 2026-06-18 | **Stage 5 started** — recorded the three Stage-5 networking parameters as [decisions.md](decisions.md) #39 (tenant `10.0.0.0/24` VXLAN @ MTU 1450; provider flat on `192.168.1.0/24`, no DHCP, gw `.1`; floating-IP pool `192.168.1.160–.191`) and closed the matching Phase-2 open items. Floating-IP pool confirmed clear of the live router's DHCP (`.10–.49`) and static (`.199–.225`) ranges. |
 | 2026-06-18 | **Stage 4 complete** — the `nova_compute` and `neutron_compute` roles run idempotently on compute1/2/3: 3 `nova-compute` `up` and cell-mapped (RBD-backed ephemeral, `vms` pool), OVS agents `up` tunnel-only. Added decisions **#36** (kvm/VT-x), **#37** (vault layout), **#38** (client.nova/ceph.conf delivery); logged the role builds + five nova problems + the `openstack-selinux` neutron fix in [project-phase-2-stage-4.md](project-phase-2-stage-4.md). Closed the **kvm/qemu** and **ansible-vault** open items (MTU stays open → Stage 5). Updated `scripts/healthcheck.sh` to assert the compute plane (3 hypervisors / nova-compute / cell mappings / controller+compute OVS agents). Stages table + status updated; **Stage 5 is next**. |
+| 2026-06-19 | **Stage 5 complete** — provider/tenant networks + `router1` (via `ansible/bootstrap.yml`, `openstack.cloud`), a CirrOS VM on the VXLAN overlay, and external reachability via a floating IP after attaching the controller's `eno1` to `br-provider` (persisted; reboot-tested). Added decisions **#39** (network params), **#40** (`os_dnsmasq_dac_override`), **#41** (cluster-wide `virtio-gpu`), **#42** (NIC attach + persistence); extended `healthcheck.sh` (section 10). Full debugging log (l2population, dnsmasq SELinux, video model, openstacksdk pinning) in [project-phase-2-stage-5.md](project-phase-2-stage-5.md). **Stage 6 (Cinder) is next.** |

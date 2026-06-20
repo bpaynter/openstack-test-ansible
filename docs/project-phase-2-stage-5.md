@@ -1,9 +1,9 @@
 # Phase 2 · Stage 5 — Bootstrap the OpenStack Objects + Test
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** — all OpenStack objects
-> created; a CirrOS VM boots and is reachable on the overlay (DHCP + metadata working).
-> Remaining: attach the controller NIC to `br-provider` (connectivity-sensitive) + floating-IP
-> external SSH.
+> Part of **[Phase 2](project-phase-2.md)**. **Status: ✅ complete** (verified 2026-06-19) — all
+> OpenStack objects created; a CirrOS VM boots on the VXLAN overlay and is reachable from the home
+> LAN via a floating IP; the provider-NIC attach is done and persists across a controller reboot.
+> Stage 6 (Cinder) is next.
 
 ## Planned steps
 
@@ -159,16 +159,40 @@ CLI). `scripts/healthcheck.sh` was extended (section 10) to assert the provider/
 `router1`'s external gateway, and the `br-tun` VXLAN tunnel mesh (so the l2population regression
 can't recur silently); the test VM is informational.
 
-### Remaining — provider-NIC attach (deferred to a console session)
+### Provider-NIC attach + persistence — Stage 5 complete (2026-06-19, console)
 
-The last step is connectivity-sensitive: put the controller's single NIC (**`eno1`**, holding
-`192.168.1.130/24`, default route via `.1`, NM-managed; `NetworkManager-ovs` not installed) into
-the empty `br-provider` and move `.130` onto the bridge, giving the flat provider net its physical
-uplink so floating IPs reach the home LAN. **Deferred until physical/console access** is available
-(no console at planning time, only a `5123→.130:22` port-forward that rides the very IP being
-moved) — to be done with a `systemd-run --on-active` auto-revert net, then made persistent and
-reboot-tested. Until then external floating-IP SSH is the only Stage 5 item outstanding; everything
-east-west is proven.
+The final connectivity-sensitive step, done at the console with an auto-revert safety net.
+The controller has a **single NIC** (`eno1`) carrying both its management/underlay/VXLAN IP
+(`192.168.1.130`) *and* (now) the flat provider uplink, so the cutover enslaves `eno1` to
+`br-provider` and moves `.130` onto the bridge. See [decision #42](decisions.md).
+
+- **Safety net:** wrote `/usr/local/sbin/nic-revert.sh` (detach `eno1`, restore `.130` on
+  `eno1` via NM) and armed it with `systemd-run --on-active=5min` *before* cutting over —
+  fires locally so it self-heals even on lockout; cancelled once connectivity held.
+- **Cutover (one atomic block):** `nmcli device set eno1 managed no` → `ovs-vsctl add-port
+  br-provider eno1` → flush `eno1` → `ip addr add 192.168.1.130/24 dev br-provider` + default
+  route via `.1` on `br-provider`. Host external connectivity (gateway + internet) confirmed
+  immediately; `eno1` now a port on `br-provider`. **Pre-flight:** confirmed `br-provider` had
+  an `actions=NORMAL` flow so the host IP would forward.
+- **Floating IP (the finale):** `openstack floating ip create provider` → `server add floating
+  ip cirros1 <fip>` → **SSH from a home-LAN laptop to the floating IP succeeds** (LAN → FIP on
+  `br-provider` → `qrouter` DNAT → VM on the overlay). End-to-end compute plane proven.
+- **Persistence (decision #42):** (a) `eno1`→`br-provider` port membership persists in the OVS
+  DB automatically; (b) NM drop-in `/etc/NetworkManager/conf.d/99-unmanage-eno1.conf`
+  (`unmanaged-devices=interface-name:eno1`) so NM never re-asserts `.130` on `eno1`; (c) a
+  systemd oneshot `provider-bridge-ip.service` (`After=openvswitch.service`,
+  `Before=network-online.target`) places `.130` + the default route on `br-provider` at boot,
+  before the IP-dependent services. Chose this over `NetworkManager-ovs` because `br-provider`
+  is already owned by the neutron OVS agent (`fail_mode=secure` + flows) — see #42.
+- **Reboot test (capstone):** rebooted the controller (only the network node; `cirros1` on
+  compute2 stayed up). Bridge/IP/route/`eno1`-unmanaged all persisted; `healthcheck.sh` clean;
+  the overlay (VXLAN tunnel, namespaces, namespace→VM ping) recovered. **Operational note:**
+  external **floating-IP** reachability lags a couple minutes after a network-node reboot while
+  the **L3 agent rebuilds** each `qrouter` namespace + re-applies floating-IP addresses/DNAT
+  from the DB — not a fault, just the settling window (a too-early SSH test failed, then worked).
+
+**Stage 5 is complete** — the core compute plane is up and a CirrOS VM is reachable from the home
+LAN. Stage 6 (Cinder, RBD-backed block storage) is next.
 
 ---
 
@@ -182,3 +206,4 @@ east-west is proven.
 | 2026-06-19 | Added the VM prerequisites (`m1.tiny`, `lab-key`, `lab-ssh-icmp`) and booted **`cirros1`** (via CLI). Debugged the overlay end-to-end: (1) `openstack.cloud.server` 2.5.0 vs openstacksdk 4.4.0 `owner_seen` → boot via CLI; (2) `hw_video_model=virtio` unsupported on EL9 modular qemu → per-image `vga`; (3) **no VXLAN tunnels** — `l2population` missing from `mechanism_drivers` → added it (server half of l2pop); (4) **`dnsmasq` SELinux `dac_override`** → `os_dnsmasq_dac_override` boolean ([decisions.md](decisions.md) #40). VM now leases `10.0.0.181` and reaches metadata. Corrected the Stage 3 `mechanism_drivers` record. Fixed earlier Stage 5 log dates (all this session = 06-19). |
 | 2026-06-19 | Resolved the video-model fix **cluster-wide** ([decisions.md](decisions.md) #41): `qemu-kvm-device-display-virtio-gpu` added to the `nova_compute` role and applied to all computes, so nova's `virtio` default works for any image (the per-image `vga` is now redundant). |
 | 2026-06-19 | Verified the overlay end-to-end: `ping` + **key SSH** to `10.0.0.181` from inside the tenant `qdhcp` namespace (proves DHCP + metadata key-injection). Committed `ansible/bootstrap.yml`. Extended `scripts/healthcheck.sh` (section 10) to assert the provider/tenant networks, `router1`'s external gateway, and the `br-tun` VXLAN tunnel mesh. Documented the deferred provider-NIC attach (`eno1`→`br-provider`, console session). Updated status across README / project-instructions / project-phase-2. |
+| 2026-06-19 | **Stage 5 complete.** Did the provider-NIC attach at the console (auto-revert net; `eno1`→`br-provider`, `.130` onto the bridge), created + associated a floating IP, and SSH'd to the VM **from a home-LAN laptop** (full north-south path). Made it persistent (OVSDB port + NM-unmanage `eno1` + `provider-bridge-ip.service`) — see [decisions.md](decisions.md) #42 — and reboot-tested the controller (persists; overlay/control-plane recover; FIP path returns after the L3 agent rebuilds, ~1–2 min). Marked Stage 5 ✅ across the owning docs. |

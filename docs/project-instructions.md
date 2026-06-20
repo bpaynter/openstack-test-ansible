@@ -23,10 +23,10 @@ planned**, not dropped).
 
 ## Current status
 
-Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–4 done; **Stage 5 in
-progress** — OpenStack objects + first VM up on the overlay, only the provider-NIC attach +
-floating-IP external SSH remain); Phase 3 is planned for later. The authoritative phase/stage
-status lives in [project-plan.md](project-plan.md#phases).
+Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–5 done — a CirrOS VM runs on
+the VXLAN overlay and is reachable from the home LAN via a floating IP; **Stage 6 (Cinder) is
+next**); Phase 3 is planned for later. The authoritative phase/stage status lives in
+[project-plan.md](project-plan.md#phases).
 
 ## How to help
 
