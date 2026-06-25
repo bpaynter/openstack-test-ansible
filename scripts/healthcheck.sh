@@ -12,6 +12,9 @@
 #   4. RabbitMQ           9. Neutron (network)
 #   5. Keystone (identity)
 #
+# Section 11 (recent SSH auth failures) is a security-hygiene add-on, not part of
+# the bottom-up control-plane stack; it WARNs on repeated failures but never FAILs.
+#
 # NON-DESTRUCTIVE: it only lists/reads — it never creates an image, network, etc.
 #
 # Usage:
@@ -19,8 +22,9 @@
 #   ./scripts/healthcheck.sh
 #
 #   - Run as your normal login user (NOT root) so the `openstack` CLI uses your
-#     admin creds. Root-only checks (Ceph, MariaDB, RabbitMQ, nova-manage) use
-#     `sudo` and will prompt once; without sudo they are skipped (WARN).
+#     admin creds. Root-only checks (Ceph, MariaDB, RabbitMQ, nova-manage, the
+#     SSH auth log) use `sudo` and will prompt once; without sudo they are
+#     skipped (WARN).
 #   - The compute plane is up (Stage 4): 3 nova-compute services up, 3
 #     hypervisors, all compute hosts mapped into a cell, and an Open vSwitch
 #     agent on the controller + each compute. Override the count with
@@ -69,7 +73,7 @@ check_match() {
 }
 
 # ---- preflight: sudo + OpenStack creds --------------------------------------
-echo "Priming sudo (root-only checks: Ceph / MariaDB / RabbitMQ / nova-manage)…"
+echo "Priming sudo (root-only checks: Ceph / MariaDB / RabbitMQ / nova-manage / SSH auth log)…"
 if sudo -v 2>/dev/null; then SUDO_OK=1; else SUDO_OK=0; fi
 
 if [[ -z "${OS_AUTH_URL:-}" && -f "$OPENRC" ]]; then
@@ -289,6 +293,35 @@ if [[ $SUDO_OK -eq 1 ]]; then
   fi
 else
   wn "overlay (br-tun) checks skipped (no sudo)"
+fi
+
+# ---- 11. Recent auth failures (SSH) -----------------------------------------
+# Security hygiene, not control-plane health: surfaces repeated failed SSH logins
+# (brute-force probes). Read with sudo so it sees attempts against EVERY account
+# (root, invalid users, etc.) — a non-root journal read only exposes the calling
+# user's own records. On this OpenSSH the per-connection process is 'sshd-session',
+# not 'sshd', so both are matched or the count reads as zero. WARN-only (never
+# FAIL): a noisy security signal shouldn't break the control-plane health gate.
+hdr "11. Recent auth failures (SSH)"
+AUTH_WINDOW="${AUTH_WINDOW:-24 hours ago}"   # journalctl --since window
+AUTH_WARN="${AUTH_WARN:-10}"                 # >= this many failures -> WARN ("repeated")
+if [[ $SUDO_OK -eq 1 ]]; then
+  fre='Failed password|Invalid user|authentication failure|maximum authentication attempts|(Connection (closed|reset)|Disconnected) (from|by) (authenticating|invalid) user'
+  jlog=$(sudo journalctl -t sshd -t sshd-session --since "$AUTH_WINDOW" --no-pager 2>/dev/null)
+  nfail=$(grep -Ec "$fre" <<<"$jlog")
+  if [[ "$nfail" -eq 0 ]]; then
+    ok "no failed SSH logins since '$AUTH_WINDOW'"
+  elif [[ "$nfail" -lt "$AUTH_WARN" ]]; then
+    nfo "$nfail failed SSH login attempt(s) since '$AUTH_WINDOW' (below WARN threshold $AUTH_WARN)"
+  else
+    # surface the top offending source IPs to aid triage
+    top=$(grep -E "$fre" <<<"$jlog" | grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+          | sort | uniq -c | sort -rn | head -3 | awk '{printf "%s(%s) ", $2, $1}')
+    wn "$nfail failed SSH login attempts since '$AUTH_WINDOW' (>= $AUTH_WARN — possible brute force)" \
+       "top source IPs: ${top:-n/a}"
+  fi
+else
+  wn "auth-failure check skipped (no sudo)"
 fi
 
 # ---- summary ----------------------------------------------------------------
