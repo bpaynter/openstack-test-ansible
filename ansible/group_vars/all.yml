@@ -7,3 +7,11 @@ rabbit_user: openstack          # the RabbitMQ vhost user from Stage 3
 # Ceph cluster facts (for the minimal client ceph.conf on compute nodes).
 ceph_fsid: "f481d34a-5659-11f1-8ce8-e454e87de2ae"
 ceph_mon_host: "[v2:192.168.1.131:3300/0,v1:192.168.1.131:6789/0] [v2:192.168.1.132:3300/0,v1:192.168.1.132:6789/0] [v2:192.168.1.133:3300/0,v1:192.168.1.133:6789/0] [v2:192.168.1.130:3300/0,v1:192.168.1.130:6789/0]"
+
+# libvirt Ceph secret UUID — a cluster-wide identifier (not a secret; the key
+# value comes from the vault). The single shared secret on every compute holds
+# the client.nova key and is reused by BOTH Nova ephemeral (vms pool) and
+# Stage 6 Cinder volume attaches (volumes pool) — decisions #38/#32 — so it
+# lives here in group_vars/all rather than in a per-role default. Generate once
+# with `uuidgen`.
+rbd_secret_uuid: "9f2ad49e-3945-487d-a68c-8768d42ba202"
