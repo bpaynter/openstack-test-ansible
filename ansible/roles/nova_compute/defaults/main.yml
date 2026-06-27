@@ -5,7 +5,6 @@
 # Ceph RBD backend for Nova ephemeral disks (decision #31)
 ceph_vms_pool: vms
 
-# libvirt secret UUID that will hold the client.nova Ceph key.
-# Same on every compute node - it's an identifier, not a secret; the key
-# value comes from the vault. Generate once with `uuidgen`.
-rbd_secret_uuid: "9f2ad49e-3945-487d-a68c-8768d42ba202"
+# rbd_secret_uuid moved to group_vars/all.yml — it is a cluster-wide identifier
+# shared by Nova ephemeral and Stage 6 Cinder (the one libvirt secret on each
+# compute serves both), not a nova_compute-specific value.
