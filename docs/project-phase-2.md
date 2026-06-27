@@ -7,17 +7,18 @@ agents). The work is the *same steps three times* across compute1/2/3 — exactl
 repetition that hand-rolled Ansible exists to absorb. There is **no teardown**: the
 controller keeps its Phase 1 services and Phase 2 adds to it.
 
-> **Status:** **In progress.** Design is complete (scope, VXLAN networking model,
-> staged Ansible approach). **Stages 0–4 are executed and verified** — the Ansible control
+> **Status:** **Complete (2026-06-27).** Design is complete (scope, VXLAN networking model,
+> staged Ansible approach), and **all stages 0–6 are executed and verified** — the Ansible control
 > node + inventory, the throwaway `common` role, the controller-side Nova & Neutron
-> bring-up (Cells v2; server + L3/DHCP/metadata + the **OVS** agent all `up`), and the
+> bring-up (Cells v2; server + L3/DHCP/metadata + the **OVS** agent all `up`), the
 > **`nova_compute` / `neutron_compute` roles** on compute1/2/3 (3 `nova-compute` `up` and
-> cell-mapped, RBD-backed ephemeral; OVS agents `up` tunnel-only). **Stage 5 (bootstrap the
-> OpenStack objects + first VM) is complete** — the provider/tenant networks + router, a CirrOS
-> VM on the VXLAN overlay, and external reachability via a floating IP (the controller's NIC is
-> attached to `br-provider`, persisting across reboot). **Stage 6 (Cinder) is next.** Each stage's
-> detailed step plan and execution log lives in its own `project-phase-2-stage-N.md`
-> file — see the [Stages](#stages) table.
+> cell-mapped, RBD-backed ephemeral; OVS agents `up` tunnel-only), the **Stage 5** bootstrap
+> (provider/tenant networks + router, a CirrOS VM on the VXLAN overlay, external reachability via a
+> floating IP with the controller's NIC on `br-provider`, persisting across reboot), and **Stage 6
+> Cinder** (controller-side `cinder-api`/`-scheduler`/`-volume`, RBD `volumes` pool reusing the
+> `client.nova` libvirt secret — a 1 GB volume created and attached to the VM). **Phase 3 (the Kolla
+> rebuild) is next.** Each stage's detailed step plan and execution log lives in its own
+> `project-phase-2-stage-N.md` file — see the [Stages](#stages) table.
 
 > **Phase-numbering note:** while scoping this phase, the source build-plan was briefly
 > rewritten to call the project a "2-phase plan" with "Kolla-Ansible dropped." That was
@@ -135,7 +136,7 @@ stage has its own file with the detailed step plan and its execution log:
 | 3 | Controller-side Nova & Neutron (manual, one-time) | ✅ complete | [project-phase-2-stage-3.md](project-phase-2-stage-3.md) |
 | 4 | `nova_compute` / `neutron_compute` roles (the loop on compute1/2/3) | ✅ complete | [project-phase-2-stage-4.md](project-phase-2-stage-4.md) |
 | 5 | Bootstrap the OpenStack objects + test | ✅ complete | [project-phase-2-stage-5.md](project-phase-2-stage-5.md) |
-| 6 | Cinder (block storage), RBD-backed | ⬜ planned | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
+| 6 | Cinder (block storage), RBD-backed | ✅ complete | [project-phase-2-stage-6.md](project-phase-2-stage-6.md) |
 
 ## Open items for Phase 2 implementation
 
@@ -214,3 +215,4 @@ stage has its own file with the detailed step plan and its execution log:
 | 2026-06-18 | **Stage 4 complete** — the `nova_compute` and `neutron_compute` roles run idempotently on compute1/2/3: 3 `nova-compute` `up` and cell-mapped (RBD-backed ephemeral, `vms` pool), OVS agents `up` tunnel-only. Added decisions **#36** (kvm/VT-x), **#37** (vault layout), **#38** (client.nova/ceph.conf delivery); logged the role builds + five nova problems + the `openstack-selinux` neutron fix in [project-phase-2-stage-4.md](project-phase-2-stage-4.md). Closed the **kvm/qemu** and **ansible-vault** open items (MTU stays open → Stage 5). Updated `scripts/healthcheck.sh` to assert the compute plane (3 hypervisors / nova-compute / cell mappings / controller+compute OVS agents). Stages table + status updated; **Stage 5 is next**. |
 | 2026-06-19 | **Stage 5 complete** — provider/tenant networks + `router1` (via `ansible/bootstrap.yml`, `openstack.cloud`), a CirrOS VM on the VXLAN overlay, and external reachability via a floating IP after attaching the controller's `eno1` to `br-provider` (persisted; reboot-tested). Added decisions **#39** (network params), **#40** (`os_dnsmasq_dac_override`), **#41** (cluster-wide `virtio-gpu`), **#42** (NIC attach + persistence); extended `healthcheck.sh` (section 10). Full debugging log (l2population, dnsmasq SELinux, video model, openstacksdk pinning) in [project-phase-2-stage-5.md](project-phase-2-stage-5.md). **Stage 6 (Cinder) is next.** |
 | 2026-06-19 | Recorded **live migration as a deferred capability** — possible via the RBD shared-storage backend (#31) but **not enabled**; documented what it needs (libvirt migration transport + `cpu_mode=custom` baseline for the heterogeneous compute CPUs + RAM headroom) as a Phase 2 open item, and added the caveat to decision #31. |
+| 2026-06-27 | **Stage 6 (Cinder) complete → Phase 2 done.** Controller-side `cinder-api`/`-scheduler`/`-volume` with an RBD `volumes` pool, **reusing the `client.nova` libvirt secret** — resolving the Stage-6-prose-vs.-decision-#38 contradiction in favour of #38 (no compute-side change; `rbd_user = nova`, `rbd_secret_uuid` = the existing shared UUID). Created a 1 GB volume, confirmed it in the `volumes` pool, and attached it to the Stage 5 VM (`vdb` in the guest). Also moved `rbd_secret_uuid` to `group_vars/all.yml` (cluster-wide identity) and extended `healthcheck.sh` (section 11 — Cinder). Status block + stages table updated to **complete**; **Phase 3 (Kolla rebuild) is next**. Full log in [project-phase-2-stage-6.md](project-phase-2-stage-6.md). |

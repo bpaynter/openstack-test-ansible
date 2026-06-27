@@ -23,10 +23,10 @@ planned**, not dropped).
 
 ## Current status
 
-Phase 0 and Phase 1 are complete; **Phase 2 is active** (Stages 0–5 done — a CirrOS VM runs on
-the VXLAN overlay and is reachable from the home LAN via a floating IP; **Stage 6 (Cinder) is
-next**); Phase 3 is planned for later. The authoritative phase/stage status lives in
-[project-plan.md](project-plan.md#phases).
+Phase 0, Phase 1, and **Phase 2 are complete** (Stages 0–6 done — a CirrOS VM runs on the VXLAN
+overlay and is reachable from the home LAN via a floating IP, and Cinder serves RBD-backed volumes,
+verified by attaching one to that VM); **Phase 3 (the Kolla-Ansible rebuild) is next**. The
+authoritative phase/stage status lives in [project-plan.md](project-plan.md#phases).
 
 ## How to help
 

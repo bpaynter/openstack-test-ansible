@@ -48,18 +48,20 @@ manual OpenStack 2025.1 control plane (Keystone, Glance on Ceph RBD, Placement) 
 controller. Full steps, config notes, and execution log in
 [project-phase-1.md](project-phase-1.md).
 
-### Phase 2 — Compute nodes with hand-rolled Ansible — **in progress**
+### Phase 2 — Compute nodes with hand-rolled Ansible — **complete**
 
 Add Nova + Neutron (and, at the end, Cinder block storage) to the existing cluster with
 hand-rolled Ansible (no teardown) — controller-side bring-up by hand, the repetitive
 compute work as idempotent roles, and **VXLAN self-service** tenant networking, with
-VMs and volumes both backed by Ceph RBD. Done in stages 0–6; **Stages 0–4 complete
-(controller-side Nova & Neutron up, OVS L2; the `nova_compute`/`neutron_compute` roles on
-compute1/2/3 — 3 hypervisors up and cell-mapped, OVS agents up tunnel-only); Stage 5
-(bootstrap + first VM) next.** Full design, step plan, and execution log in
+VMs and volumes both backed by Ceph RBD. Built in **stages 0–6, all complete**: the
+`nova_compute`/`neutron_compute` roles brought up 3 cell-mapped hypervisors (RBD-backed
+ephemeral) with tunnel-only OVS agents; a CirrOS VM runs on the VXLAN overlay and is
+reachable from the home LAN via a floating IP; and **Cinder** (controller-side, RBD-backed
+`volumes` pool, reusing the `client.nova` libvirt secret) serves persistent volumes —
+verified by attaching one to the VM. Full design, step plan, and execution log in
 [project-phase-2.md](project-phase-2.md).
 
-### Phase 3 — Full teardown and rebuild with Kolla-Ansible
+### Phase 3 — Full teardown and rebuild with Kolla-Ansible — **next**
 
 Tear down and redeploy the whole cluster with Kolla-Ansible.
 
@@ -104,3 +106,4 @@ as `kvm`/`qemu` and `ansible-vault` were in Stage 4 (#36/#37). Tracked in
 | 2026-06-18 | Marked Phase 2 **Stage 4 complete** — the `nova_compute`/`neutron_compute` roles on compute1/2/3 (3 `nova-compute` up + cell-mapped, RBD-backed ephemeral; OVS agents up tunnel-only). Closed the **`kvm`/`qemu`** and **`ansible-vault`** open items ([decisions.md](decisions.md) #36/#37; #38 records the client.nova/ceph.conf delivery). Stage 5 (bootstrap + first VM) is next. See [project-phase-2-stage-4.md](project-phase-2-stage-4.md). |
 | 2026-06-18 | Stage 5 started: recorded the last three planning open items (tenant CIDR, floating-IP pool, VXLAN MTU) as [decisions.md](decisions.md) #39 — **no planning open items remain**. |
 | 2026-06-19 | **Phase 2 Stage 5 complete** — OpenStack objects bootstrapped and a CirrOS VM is reachable from the home LAN via a floating IP (decisions #39–#42). **Stage 6 (Cinder) is the last Phase 2 stage.** |
+| 2026-06-27 | **Phase 2 Stage 6 (Cinder) complete → Phase 2 is done.** Controller-side `cinder-api`/`-scheduler`/`-volume` with an RBD `volumes` pool, **reusing the `client.nova` libvirt secret** (resolved the Stage-6-prose vs. decision #38 contradiction in favour of #38 — no compute-side change); a 1 GB volume was created, confirmed in the `volumes` pool, and attached to the Stage 5 VM. Marked Phase 2 **complete** and Phase 3 **next**. Also moved `rbd_secret_uuid` to `group_vars/all.yml` (cluster-wide identity). See [project-phase-2-stage-6.md](project-phase-2-stage-6.md). |

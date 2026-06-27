@@ -1,6 +1,9 @@
 # Phase 2 · Stage 6 — Cinder (block storage), RBD-backed
 
-> Part of **[Phase 2](project-phase-2.md)**. **Status: in progress** (started 2026-06-20).
+> Part of **[Phase 2](project-phase-2.md)**. **Status: complete** (verified 2026-06-27).
+> A 1 GB Cinder volume was created, confirmed as `volume-<uuid>` in the Ceph `volumes`
+> pool, attached to the Stage 5 CirrOS instance, and seen as `/dev/vdb` inside the guest.
+> **Phase 2 is done.**
 
 ## Auth model — reuse `client.nova` (decision #38), *not* a separate `client.cinder`
 
@@ -8,7 +11,7 @@ This stage's original prose called for a separate `client.cinder` cephx user wit
 `rbd_user = cinder`. That predates **decision #38** (settled in Stage 4), which commits to a
 **single shared libvirt secret** on the computes (holding the `client.nova` key) that
 *"is reused unchanged by Stage 6 Cinder; only its Ceph caps get extended to the `volumes`
-pool."* The two conflicted; resolved **2026-06-20** in favour of decision #38 (honour the
+pool."* The two conflicted; resolved **2026-06-27** in favour of decision #38 (honour the
 later, more-specific commitment; zero compute-side change on a throwaway cluster).
 
 Concretely this means:
@@ -56,5 +59,66 @@ Kolla deploys) was the alternative; deferred to Phase 3.
 
 ## Actual work completed
 
-_In progress — started 2026-06-20. Auth-model contradiction (separate `client.cinder` vs.
-reuse `client.nova`) resolved in favour of decision #38; see the Auth model note above._
+**Complete — verified 2026-06-27.** Controller-side install, by hand, following the Phase 1
+Glance pattern. The auth-model contradiction (separate `client.cinder` vs. reuse
+`client.nova`) was resolved in favour of **decision #38** — see the Auth model note above —
+so there was **zero compute-side change**.
+
+### Ceph side
+- Created the `volumes` pool (`ceph osd pool create volumes 32 32` → `application enable
+  volumes rbd` → `rbd pool init volumes`) — 32 PGs, matching `images`/`vms`; autoscaler on.
+- **Extended `client.nova`'s caps** to the `volumes` pool. The gotcha: `ceph auth caps`
+  *replaces* (not appends), so all existing caps were restated —
+  `osd 'profile rbd pool=vms, profile rbd pool=volumes, profile rbd-read-only pool=images'`,
+  `mgr 'profile rbd pool=vms, profile rbd pool=volumes'`, `mon 'profile rbd'`.
+- Placed `/etc/ceph/ceph.client.nova.keyring` on the controller for `cinder-volume`
+  (`ceph auth get client.nova -o …`, then `root:cinder` / `0640` / `restorecon` — the
+  Phase 1 issue #3 pattern). Verified both it and `ceph.conf` are readable by the `cinder`
+  user **before** first start (`sudo -u cinder cat …`).
+
+### Ansible refactor
+- Moved `rbd_secret_uuid` from `roles/nova_compute/defaults/main.yml` to
+  `group_vars/all.yml` — it is now a cluster-wide identity shared by Nova ephemeral and
+  Cinder volume attaches, not a `nova_compute` default. Pure relocation (group_vars
+  outranks role defaults; templates reference it by name → `site.yml` stays idempotent).
+  Makes decision #38's "lives in `group_vars/all.yml`" wording accurate.
+
+### Controller-side service
+- **DB:** `cinder` database + `'cinder'@'localhost'` and `'cinder'@'%'` grants (`sudo mysql`).
+- **Keystone:** confirmed the `service` project exists (issue #5), created the `cinder` user,
+  granted `admin` on `service`, **verified with `role assignment list`**; registered the
+  **block-storage v3** service (`volumev3`) + public/internal/admin endpoints at
+  `http://controller:8776/v3/%(project_id)s`.
+- **Install:** `openstack-cinder` → standalone `openstack-cinder-{api,scheduler,volume}`
+  services (not WSGI on this build; verified unit names before enabling — the Stage 4
+  libvirtd lesson). The package created the `cinder` user/group (gid 165).
+- **`cinder.conf`** (minimal, via `crudini`): `[database] connection`; `[DEFAULT]`
+  `transport_url` (reused verbatim from `nova.conf`) / `auth_strategy = keystone` /
+  `enabled_backends = ceph`; the standard `[keystone_authtoken]` set; `[oslo_concurrency]
+  lock_path = /var/lib/cinder/tmp`; and a `[ceph]` backend — `volume_driver =
+  cinder.volume.drivers.rbd.RBDDriver`, `volume_backend_name = ceph`, `rbd_pool = volumes`,
+  `rbd_ceph_conf = /etc/ceph/ceph.conf`, **`rbd_user = nova`**, **`rbd_secret_uuid =
+  9f2ad49e-…`**. Omitted the deprecated `glance_api_servers` (catalog auto-discovery) and
+  the rbd tuning knobs (already at default).
+- **Nova wiring:** `nova.conf [cinder] os_region_name = RegionOne` on the controller only;
+  restarted `openstack-nova-api`.
+- **Bring-up:** `cinder-manage db sync` (as the `cinder` user); enabled/started the three
+  services. `openstack volume service list` → `cinder-scheduler` + `cinder-volume@ceph`
+  both `up` (the `@ceph` host suffix confirms the backend section loaded).
+
+### Verification
+- `openstack volume create --size 1 test-vol` → `available`; `rbd -p volumes ls` shows
+  `volume-<uuid>`.
+- `openstack server add volume <cirros> test-vol` → `in-use`; inside the guest `lsblk`
+  shows a new 1 GB `vdb`. **Phase 2 finish line reached.**
+- `scripts/healthcheck.sh` extended with a Cinder section (volume services up + `volumes`
+  pool present + `cinder` admin-on-service grant) — clean.
+
+### Notes / non-problems
+- **The nova-compute→Cinder watch-point resolved with no compute change.** The attach is
+  completed by `nova-compute` calling Cinder, but with a single region and the public
+  endpoint reachable from the computes, its defaults sufficed — `[cinder] os_region_name`
+  was **not** needed on the computes, keeping the design's "no compute-side change" promise.
+- **SELinux stayed enforcing with no new denials** — the `restorecon` on the keyring gave it
+  the right label, so `cinder-volume` read `/etc/ceph` without an AVC (the Phase 1 / Stage 3
+  Ceph-label class did not recur, because the keyring was created fresh, not renamed-in).

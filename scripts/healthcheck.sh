@@ -9,10 +9,10 @@
 #   1. systemd units      6. Glance (image)        10. Stage 5 objects
 #   2. Ceph               7. Placement                 (networks / router /
 #   3. Databases          8. Nova (compute)            VXLAN overlay / VM)
-#   4. RabbitMQ           9. Neutron (network)
+#   4. RabbitMQ           9. Neutron (network)     11. Cinder (block storage)
 #   5. Keystone (identity)
 #
-# Section 11 (recent SSH auth failures) is a security-hygiene add-on, not part of
+# Section 12 (recent SSH auth failures) is a security-hygiene add-on, not part of
 # the bottom-up control-plane stack; it WARNs on repeated failures but never FAILs.
 #
 # NON-DESTRUCTIVE: it only lists/reads — it never creates an image, network, etc.
@@ -89,6 +89,7 @@ units=(
   openstack-glance-api
   openstack-nova-api openstack-nova-scheduler openstack-nova-conductor openstack-nova-novncproxy
   neutron-server neutron-openvswitch-agent neutron-l3-agent neutron-dhcp-agent neutron-metadata-agent
+  openstack-cinder-api openstack-cinder-scheduler openstack-cinder-volume
   restorecond
 )
 for u in "${units[@]}"; do
@@ -143,7 +144,7 @@ if [[ $OSC_OK -eq 1 ]]; then
     check_match "service catalog: $s" "(^|[[:space:]])$s([[:space:]]|\$)" openstack service list -f value -c Type
   done
   asgn=$(openstack role assignment list --names -f value 2>/dev/null)
-  for usr in glance nova neutron placement; do
+  for usr in glance nova neutron placement cinder; do
     if grep -Eq "(^|[[:space:]])admin[[:space:]].*${usr}@Default.*service@Default" <<<"$asgn"; then
       ok "role: ${usr} = admin on service project"
     else
@@ -295,14 +296,34 @@ else
   wn "overlay (br-tun) checks skipped (no sudo)"
 fi
 
-# ---- 11. Recent auth failures (SSH) -----------------------------------------
+# ---- 11. Cinder (block storage) ---------------------------------------------
+hdr "11. Cinder (block storage)"
+if [[ $OSC_OK -eq 1 ]]; then
+  vsvc=$(openstack volume service list -f value -c Binary -c State 2>/dev/null)
+  for b in cinder-scheduler cinder-volume; do
+    grep -Eq "${b}.*\bup\b" <<<"$vsvc" && ok "volume service: ${b} up" \
+      || no "volume service: ${b}" "$(grep "$b" <<<"$vsvc" || echo 'absent / not up')"
+  done
+  # api + keystone + db answer together (empty list is fine)
+  check "volume list (cinder-api + keystone + db)" openstack volume list
+else
+  wn "Cinder checks skipped (no creds)"
+fi
+# the RBD backend pool must exist (Cinder reuses client.nova on it; decision #38)
+if [[ $SUDO_OK -eq 1 ]]; then
+  check_match "osd pool 'volumes' exists" '(^|[[:space:]])volumes([[:space:]]|$)' sudo ceph osd pool ls
+else
+  wn "Ceph 'volumes' pool check skipped (no sudo)"
+fi
+
+# ---- 12. Recent auth failures (SSH) -----------------------------------------
 # Security hygiene, not control-plane health: surfaces repeated failed SSH logins
 # (brute-force probes). Read with sudo so it sees attempts against EVERY account
 # (root, invalid users, etc.) — a non-root journal read only exposes the calling
 # user's own records. On this OpenSSH the per-connection process is 'sshd-session',
 # not 'sshd', so both are matched or the count reads as zero. WARN-only (never
 # FAIL): a noisy security signal shouldn't break the control-plane health gate.
-hdr "11. Recent auth failures (SSH)"
+hdr "12. Recent auth failures (SSH)"
 AUTH_WINDOW="${AUTH_WINDOW:-24 hours ago}"   # journalctl --since window
 AUTH_WARN="${AUTH_WARN:-10}"                 # >= this many failures -> WARN ("repeated")
 if [[ $SUDO_OK -eq 1 ]]; then
