@@ -8,15 +8,24 @@
 # The compute/OSD nodes are rolled one at a time so Ceph data stays available
 # (3x replication, host failure domain = one host down at a time).
 
+- name: Pre-flight - refuse to start if Ceph is already degraded
+  hosts: controller.lab.internal
+  gather_facts: false
+  tasks:
+    - ansible.builtin.include_tasks: ceph_wait_healthy.yml
+      vars:
+        ceph_wait_retries: 1     # fail fast - don't wait, just assert healthy now
+        ceph_wait_delay: 0
+
 - name: Pause Ceph out-marking + update the controller (no reboot here)
   hosts: controller.lab.internal
   gather_facts: false
   become: true
   tasks:
-    - name: ceph osd set noout         # don't rebalanve for a brief reboot
+    - name: ceph osd set noout         # don't rebalance for a brief reboot
       ansible.builtin.command: ceph osd set noout
       changed_when: true
-    - name: Update controller packages (Erlang pinned, decision #33)
+    - name: "Update controller packages (Erlang pinned, decision #33)"
       ansible.builtin.dnf:
         name: "*"
         state: latest
@@ -28,22 +37,21 @@
   gather_facts: false
   become: true
   tasks:
-    - name: Update packages (Erlang pinned, decision #33)
+    - name: "Update packages (Erlang pinned, decision #33)"
       ansible.builtin.dnf:
         name: "*"
         state: latest
         exclude: erlang*
+      register: dnf_update
+      
     - name: Reboot and wait for the node to come back
       ansible.builtin.reboot:
         reboot_timeout: 900
-    - name: Wait for Ceph HEALTH_OK before moving to the next host
-      ansible.builtin.command: ceph health
-      delegate_to: controller.lab.internal    # only the controller has the admin keyring
-      register: ceph_health
-      until: "'HEALTH_OK' in ceph_health.stdout"
-      retries: 30                        # Up to ~5 min per host
-      delay: 10
-      changed_when: false
+      when: dnf_update.changed
+      
+    - name: Wait for Ceph recovery before moving to the next host
+      ansible.builtin.include_tasks: ceph_wait_healthy.yml
+      when: dnf_update.changed
 
 - name: Resume Ceph out-marking
   hosts: controller.lab.internal

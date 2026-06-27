@@ -1,0 +1,18 @@
+---
+# Reusable Ceph health gate: pass only when OSDs are up and PGs have recovered
+# IGNORING the noout flag (which we set during the roll). Tunable per call:
+#   ceph_wait_retries (default 30), ceph_wait_delay (default 10).
+# Used as a fail-fast pre-flight (retries=1) AND as the between-reboots wait.
+
+- name: Wait for Ceph OSDs up + PGs recovered
+  ansible.builtin.command: ceph health detail
+  delegate_to: controller.lab.internal    # only the controller has the admin keyring
+  become: true
+  register: ceph_health
+  until: >-
+    ('OSD_DOWN' not in ceph_health.stdout) and
+    ('PG_DEGRADED' not in ceph_health.stdout) and
+    ('PG_AVAILABILITY' not in ceph_health.stdout)
+  retries: "{{ ceph_wait_retries | default(30) | int }}"
+  delay: "{{ ceph_wait_delay | default(10) | int }}"
+  changed_when: false
